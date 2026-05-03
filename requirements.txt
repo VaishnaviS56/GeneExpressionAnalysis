@@ -1,0 +1,11 @@
+streamlit>=1.32
+langgraph>=0.2.0
+langchain>=0.2.0
+langchain-groq>=0.1.0
+networkx>=3.2
+requests>=2.31
+pydantic>=2.5
+python-dotenv>=1.0
+pytest>=8.0
+gget>=0.28
+altair>=5.2
