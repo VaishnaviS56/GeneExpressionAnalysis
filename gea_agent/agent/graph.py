@@ -6,12 +6,12 @@ import networkx as nx
 from langgraph.graph import END, START, StateGraph
 
 from gea_agent.agent.state import AgentState, Route
-from gea_agent.tools.build_graph import build_weighted_graph_from_string_edges
+from gea_agent.config import SETTINGS
 from gea_agent.tools.classify_query import classify_query
 from gea_agent.tools.enrichr import enrichr_pathways
-from gea_agent.tools.fetch_string_network import fetch_string_network_edges
 from gea_agent.tools.llm import get_llm
 from gea_agent.tools.random_walk_restart import top_rwr_genes
+from gea_agent.tools.string_local_graph import build_weighted_graph_from_string_files
 from gea_agent.tools.synthesizer import synthesize_technical_response
 
 
@@ -41,14 +41,15 @@ def node_general_answer(state: AgentState) -> AgentState:
 
 
 def node_fetch_string(state: AgentState) -> AgentState:
+    """Build STRING graph from downloaded local files."""
     genes = state.get("genes") or []
-    edges = fetch_string_network_edges(genes)
-    return {"string_edges": edges}
-
-
-def node_build_graph(state: AgentState) -> AgentState:
-    edges = state.get("string_edges") or []
-    graph = build_weighted_graph_from_string_edges(edges)
+    graph = build_weighted_graph_from_string_files(
+        genes=genes,
+        info_path=SETTINGS.string_info_path,
+        links_path=SETTINGS.string_links_path,
+        required_score=SETTINGS.string_required_score,
+        mode=SETTINGS.string_local_mode,
+    )
     return {"graph": graph}
 
 
@@ -71,7 +72,11 @@ def node_enrichr(state: AgentState) -> AgentState:
     genes = state.get("genes") or []
     rwr = state.get("rwr_genes") or []
     expanded = genes + [g for g, _ in rwr]
-    results = enrichr_pathways(expanded, top_n=10, background_genes=list((state.get("graph") or nx.Graph()).nodes()))
+    results = enrichr_pathways(
+        expanded,
+        top_n=10,
+        background_genes=list((state.get("graph") or nx.Graph()).nodes()),
+    )
     return {"enrichr": results}
 
 
@@ -106,7 +111,6 @@ def build_app():
     graph.add_node("general_answer", node_general_answer)
 
     graph.add_node("fetch_string", node_fetch_string)
-    graph.add_node("build_graph", node_build_graph)
     graph.add_node("rwr", node_rwr)
     graph.add_node("enrichr", node_enrichr)
     graph.add_node("synthesize", node_synthesize)
@@ -123,8 +127,7 @@ def build_app():
 
     graph.add_edge("general_answer", END)
 
-    graph.add_edge("fetch_string", "build_graph")
-    graph.add_edge("build_graph", "rwr")
+    graph.add_edge("fetch_string", "rwr")
     graph.add_edge("rwr", "enrichr")
     graph.add_edge("enrichr", "synthesize")
     graph.add_edge("synthesize", END)

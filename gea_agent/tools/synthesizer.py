@@ -23,9 +23,9 @@ def synthesize_technical_response(
         "seed_genes": seed_genes,
         "network": {"nodes": graph.number_of_nodes(), "edges": graph.number_of_edges()},
         "rwr_top_genes": rwr_genes,
-        "enrichr": enrichr,
+        "enrichr": enrichr
     }
-
+    print(payload)
     resp = llm.invoke(
         [
             (
@@ -36,7 +36,7 @@ def synthesize_technical_response(
                 "- Detected genes (seed genes)\n"
                 "- STRING network summary (nodes, edges)\n"
                 "- Random Walk with Restart: top additional genes (show top 20 with scores)\n"
-                "- Pathway enrichment (Enrichr via gget): for each library, list top terms with adjusted p-values\n\n"
+                #"- Pathway enrichment (Enrichr via gget): for each library, list top terms with adjusted p-values\n\n"
                 "Be explicit about what you did. If the network or enrichment is empty, explain why and suggest fixes.",
             ),
             ("user", json.dumps(payload, ensure_ascii=False)),

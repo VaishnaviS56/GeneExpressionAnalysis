@@ -8,4 +8,3 @@ pydantic>=2.5
 python-dotenv>=1.0
 pytest>=8.0
 gget>=0.28
-altair>=5.2

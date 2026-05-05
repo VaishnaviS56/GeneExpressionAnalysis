@@ -1,29 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Any
 
 import gget
-
-
-EnrichrLibrary = Literal[
-    "KEGG_2021_Human",
-    "Reactome_2022",
-    "GO_Biological_Process_2023",
-]
-
-
-class EnrichrTerm(TypedDict, total=False):
-    term: str
-    p_value: float
-    adjusted_p_value: float
-    combined_score: float
-    overlapping_genes: list[str]
-
-
-class EnrichrResults(TypedDict):
-    input_genes: list[str]
-    background_genes: list[str]
-    libraries: dict[str, list[EnrichrTerm]]
 
 
 def _as_records(obj: Any) -> list[dict[str, Any]]:
@@ -31,7 +10,6 @@ def _as_records(obj: Any) -> list[dict[str, Any]]:
         return []
     if isinstance(obj, list):
         return [x for x in obj if isinstance(x, dict)]
-    # pandas DataFrame-like
     to_dict = getattr(obj, "to_dict", None)
     if callable(to_dict):
         try:
@@ -43,15 +21,14 @@ def _as_records(obj: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _normalize_terms(records: list[dict[str, Any]], *, top_n: int) -> list[EnrichrTerm]:
-    out: list[EnrichrTerm] = []
-
+def _normalize_terms(records: list[dict[str, Any]], *, top_n: int) -> list[dict[str, Any]]:
     def pick(row: dict[str, Any], *keys: str):
         for k in keys:
             if k in row and row[k] is not None:
                 return row[k]
         return None
 
+    out: list[dict[str, Any]] = []
     for row in records[: max(top_n * 3, top_n)]:
         term = pick(row, "path_name", "term", "term_name", "name")
         if not isinstance(term, str):
@@ -82,7 +59,7 @@ def _normalize_terms(records: list[dict[str, Any]], *, top_n: int) -> list[Enric
         else:
             overlap_genes = []
 
-        term_obj: EnrichrTerm = {"term": term, "overlapping_genes": overlap_genes}
+        term_obj: dict[str, Any] = {"term": term, "overlapping_genes": overlap_genes}
         if p_f is not None:
             term_obj["p_value"] = p_f
         if adj_f is not None:
@@ -101,22 +78,28 @@ def enrichr_pathways(
     genes: list[str],
     *,
     background_genes: list[str] | None = None,
-    libraries: list[EnrichrLibrary] | None = None,
+    libraries: list[str] | None = None,
     top_n: int = 10,
     species: str = "human",
-) -> EnrichrResults:
+) -> dict[str, Any]:
     """
-    Enrichment via `gget.enrichr(..., background_list=...)` as in the referenced notebook.
+    Enrichment via `gget.enrichr(..., background_list=...)`.
 
-    `background_genes` should represent the universe (e.g. all genes in the STRING network,
-    or all expressed genes in the experiment).
+    Returns simple data structures:
+    {
+      "input_genes": [...],
+      "background_genes": [...],
+      "libraries": {
+         "Reactome_2022": [ {"term":..., "adjusted_p_value":..., ...}, ...],
+         ...
+      }
+    }
     """
     genes = [g.strip().upper() for g in genes if g and g.strip()]
     genes = list(dict.fromkeys(genes))
 
     background_genes = background_genes or []
     background_genes = [g.strip().upper() for g in background_genes if g and g.strip()]
-    # Ensure query genes are included in the background list
     background_genes = list(dict.fromkeys(background_genes + genes))
 
     if not genes:
@@ -126,18 +109,17 @@ def enrichr_pathways(
         "Reactome_2022",
         "KEGG_2021_Human",
         "GO_Biological_Process_2023",
-        "ChEA_2022"
     ]
 
-    out: dict[str, list[EnrichrTerm]] = {}
+    out: dict[str, list[dict[str, Any]]] = {}
     for lib in libraries:
         raw = gget.enrichr(
             genes=genes,
             database=lib,
             species=species,
-            background_list=background_genes if background_genes else None
-            # json=True,
-            # verbose=False,
+            background_list=background_genes if background_genes else None,
+            json=True,
+            verbose=False,
         )
         records = _as_records(raw)
         out[lib] = _normalize_terms(records, top_n=top_n)
