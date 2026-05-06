@@ -42,4 +42,4 @@ def synthesize_technical_response(
             ("user", json.dumps(payload, ensure_ascii=False)),
         ]
     )
-    return getattr(resp, "content", "") or ""
+    return getattr(resp, "content", "")

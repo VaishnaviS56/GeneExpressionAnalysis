@@ -33,7 +33,7 @@ def safe_parse_json(text: str) -> dict[str, Any] | None:
 
 
 def heuristic_classification(query: str, genes: list[str]) -> QueryClassification:
-    q = (query or "").lower()
+    q = query.lower()
     keywords = ["pathway", "interact", "interaction", "network", "enrichment", "enrichr", "string"]
 
     if len(genes) >= 2:
@@ -70,7 +70,7 @@ def classify_query(query: str) -> QueryClassification:
         kind = "general"
 
     # Guardrails: technical only when it makes sense for this app
-    q = (query or "").lower()
+    q = (query).lower()
     keywords = ["pathway", "interact", "interaction", "network", "enrichment", "enrichr", "string"]
     if kind == "technical" and not (len(genes) >= 2 or (len(genes) >= 1 and any(k in q for k in keywords))):
         kind = "general"

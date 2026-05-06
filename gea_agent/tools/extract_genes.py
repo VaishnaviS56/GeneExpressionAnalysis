@@ -10,7 +10,10 @@ BLACKLIST = {
 
 
 def extract_genes_from_text(text: str) -> list[str]:
-    tokens = _GENE_TOKEN.findall(text or "")
+    try:
+        tokens = _GENE_TOKEN.findall(text)
+    except:
+        raise ValueError
 
     genes = []
     for token in tokens:

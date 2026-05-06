@@ -4,17 +4,16 @@ from typing import Any, Literal, TypedDict
 
 import networkx as nx
 
-from gea_agent.tools.types import QueryClassification, StringEdge
+from gea_agent.tools.types import QueryClassification
 
 
 class AgentState(TypedDict, total=False):
-    messages: list[dict[str, str]]  # {"role": "user"|"assistant", "content": "..."}
+    # messages: list[dict[str, str]]  # {"role": "user"|"assistant", "content": "..."}
     query: str
     classification: QueryClassification
 
     # technical branch
     genes: list[str]
-    string_edges: list[StringEdge]
     graph: nx.Graph
     rwr_genes: list[tuple[str, float]]
     enrichr: dict[str, Any]

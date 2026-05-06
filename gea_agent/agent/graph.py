@@ -29,7 +29,7 @@ def node_classify(state: AgentState) -> AgentState:
 
 
 def node_general_answer(state: AgentState) -> AgentState:
-    query = state.get("query") or ""
+    query = state.get("query")
     llm = get_llm()
     resp = llm.invoke(
         [
@@ -37,12 +37,12 @@ def node_general_answer(state: AgentState) -> AgentState:
             ("user", query),
         ]
     )
-    return {"answer": getattr(resp, "content", "") or ""}
+    return {"answer": getattr(resp, "content", "")}
 
 
 def node_fetch_string(state: AgentState) -> AgentState:
     """Build STRING graph from downloaded local files."""
-    genes = state.get("genes") or []
+    genes = state.get("genes")
     graph = build_weighted_graph_from_string_files(
         genes=genes,
         info_path=SETTINGS.string_info_path,
@@ -62,15 +62,15 @@ def _graph_summary(graph: nx.Graph) -> dict[str, object]:
 
 
 def node_rwr(state: AgentState) -> AgentState:
-    graph = state.get("graph") or nx.Graph()
-    genes = state.get("genes") or []
-    rwr = top_rwr_genes(graph, genes, top_k=20, restart_prob=0.5)
+    graph = state.get("graph")
+    genes = state.get("genes")
+    rwr = top_rwr_genes(graph, genes, top_k=5, restart_prob=0.12)
     return {"rwr_genes": rwr}
 
 
 def node_enrichr(state: AgentState) -> AgentState:
-    genes = state.get("genes") or []
-    rwr = state.get("rwr_genes") or []
+    genes = state.get("genes")
+    rwr = state.get("rwr_genes")
     expanded = genes + [g for g, _ in rwr]
     results = enrichr_pathways(
         expanded,
@@ -81,11 +81,11 @@ def node_enrichr(state: AgentState) -> AgentState:
 
 
 def node_synthesize(state: AgentState) -> AgentState:
-    query = state.get("query") or ""
-    genes = state.get("genes") or []
-    graph = state.get("graph") or nx.Graph()
-    rwr = state.get("rwr_genes") or []
-    enrichr = state.get("enrichr") or {}
+    query = state.get("query")
+    genes = state.get("genes")
+    graph = state.get("graph")
+    rwr = state.get("rwr_genes")
+    enrichr = state.get("enrichr")
 
     summary = _graph_summary(graph)
     answer = synthesize_technical_response(

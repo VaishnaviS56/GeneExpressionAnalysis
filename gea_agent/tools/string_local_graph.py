@@ -7,7 +7,7 @@ import networkx as nx
 
 def load_string_id_to_gene(info_path: str) -> dict[str, str]:
     """Load mapping: #string_protein_id -> preferred_name from STRING protein.info TSV."""
-    mapping: dict[str, str] = {}
+    mapping = {}
     with open(info_path, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
@@ -20,7 +20,7 @@ def load_string_id_to_gene(info_path: str) -> dict[str, str]:
 
 def load_gene_to_string_id(info_path: str) -> dict[str, str]:
     """Reverse mapping: preferred_name -> #string_protein_id (first occurrence wins)."""
-    out: dict[str, str] = {}
+    out = {}
     with open(info_path, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
