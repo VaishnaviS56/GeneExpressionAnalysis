@@ -91,7 +91,6 @@ def enrichr_pathways(
       "background_genes": [...],
       "libraries": {
          "Reactome_2022": [ {"term":..., "adjusted_p_value":..., ...}, ...],
-         ...
       }
     }
     """
