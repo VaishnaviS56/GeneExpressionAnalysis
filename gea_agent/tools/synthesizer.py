@@ -25,7 +25,7 @@ def synthesize_technical_response(
         "rwr_top_genes": rwr_genes
         # "enrichr": enrichr
     }
-    print(payload)
+    # print(payload)
     resp = llm.invoke(
         [
             (
