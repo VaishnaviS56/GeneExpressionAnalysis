@@ -22,8 +22,8 @@ def synthesize_technical_response(
         "user_query": user_query,
         "seed_genes": seed_genes,
         "network": {"nodes": graph.number_of_nodes(), "edges": graph.number_of_edges()},
-        "rwr_top_genes": rwr_genes,
-        "enrichr": enrichr
+        "rwr_top_genes": rwr_genes
+        # "enrichr": enrichr
     }
     print(payload)
     resp = llm.invoke(
@@ -42,4 +42,4 @@ def synthesize_technical_response(
             ("user", json.dumps(payload, ensure_ascii=False)),
         ]
     )
-    return getattr(resp, "content", "")
+    return getattr(payload, "content", "")

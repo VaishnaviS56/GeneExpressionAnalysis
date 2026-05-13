@@ -74,7 +74,7 @@ def top_rwr_genes(
     graph: nx.Graph,
     seed_genes: list[str],
     *,
-    top_k: int = 5,
+    top_k: int = 20,
     restart_prob: float = 0.5,
     exclude: Iterable[str] | None = None,
 ) -> list[tuple[str, float]]:

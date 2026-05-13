@@ -121,7 +121,7 @@ def enrichr_pathways(
             verbose=False,
         )
         records = _as_records(raw)
-        out[lib] = _normalize_terms(records, top_n=top_n)
+        out[lib] = _normalize_terms(records, top_n=2)
 
     return {
         "input_genes": genes,

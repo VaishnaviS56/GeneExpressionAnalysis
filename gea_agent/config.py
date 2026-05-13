@@ -6,6 +6,8 @@ class Settings:
     groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
     temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
+    string_required_score: int = int(os.getenv("STRING_REQUIRED_SCORE", "900"))
+
     # Local STRING files (downloaded)
     # Point these to your downloaded files (repo-relative or absolute paths).
     string_info_path: str = os.getenv(
