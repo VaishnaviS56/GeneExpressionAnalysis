@@ -8,3 +8,4 @@ pydantic>=2.5
 python-dotenv>=1.0
 pytest>=8.0
 gget>=0.28
+pyvis>=0.3.2

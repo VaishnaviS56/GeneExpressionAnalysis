@@ -4,6 +4,7 @@ import io
 
 import networkx as nx
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from gea_agent.agent.graph import build_app
@@ -71,6 +72,15 @@ def _render_technical_tables(meta: dict, graph: nx.Graph | None):
             file_name="string_network.graphml",
             mime="application/graphml+xml",
         )
+
+    pyvis_html_path = meta.get("pyvis_html_path")
+    if isinstance(pyvis_html_path, str) and pyvis_html_path:
+        try:
+            with open(pyvis_html_path, "r", encoding="utf-8") as f:
+                st.subheader("Network visualization")
+                components.html(f.read(), height=850, scrolling=True)
+        except FileNotFoundError:
+            st.warning("PyVis visualization file was not found.")
 
 
 def _render_sidebar():

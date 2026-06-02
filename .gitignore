@@ -1,0 +1,4 @@
+# Generated artifacts
+string_full_graph.pkl
+*.graphml
+__pycache__/

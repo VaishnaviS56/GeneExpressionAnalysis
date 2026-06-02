@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+
 class Settings:
     groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
     temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
@@ -24,6 +25,11 @@ class Settings:
     # - seed_1hop_closed: seed_1hop plus edges among discovered nodes (2 passes)
     # - full: all edges (can be large)
     string_local_mode: str = os.getenv("STRING_LOCAL_MODE", "seed_1hop_closed")
+    # string_local_mode: str = os.getenv("STRING_LOCAL_MODE", "full")
+
+    # Cache for full STRING graph (pickle)
+    string_graph_cache_path: str = os.getenv("STRING_GRAPH_CACHE_PATH", r"string_full_graph.pkl")
+    string_force_rebuild: bool = os.getenv("STRING_FORCE_REBUILD", "0") == "1"
 
 
 SETTINGS = Settings()

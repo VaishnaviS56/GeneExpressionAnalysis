@@ -17,6 +17,7 @@ class AgentState(TypedDict, total=False):
     graph: nx.Graph
     rwr_genes: list[tuple[str, float]]
     enrichr: dict[str, Any]
+    pyvis_html_path: str
 
     # final
     answer: str

@@ -16,7 +16,6 @@ def random_walk_with_restart(
     tol: float = 1e-10,
     weight: str = "weight",
 ) -> dict[str, float]:
-    print("count")
     """Random Walk with Restart (RWR) on an undirected weighted graph."""
     if graph.number_of_nodes() == 0 or not seed_genes:
         return {}
@@ -102,6 +101,67 @@ def _aggregate_scores(score_dicts: list[dict[str, float]]) -> dict[str, float]:
     return {g: s / k for g, s in acc.items()}
 
 
+def permutation_pvalues(
+    graph: nx.Graph,
+    *,
+    seed_genes: list[str],
+    candidate_genes: list[str],
+    restart_prob: float,
+    permutations: int = 1000,
+    random_state: int | None = 42,
+    exclude_hubs_from_sampling: bool = True,
+    hub_percentile: float = 0.99,
+    compare_seed_stat: str = "mean",
+) -> dict[str, float]:
+    """
+    Permutation test described as:
+      p-value(prot) = Y / permutations
+    where Y is the number of RWR runs (with random seed sets) in which
+    the probability of the candidate protein is higher than that of the actual seed nodes.
+
+    Implementation detail:
+    - Compute baseline from the *actual* RWR run using the real `seed_genes`.
+      baseline_seed_score is the mean (or max) of the stationary probabilities of seed genes.
+    - For each permutation: run RWR with random seeds (same count as seed_genes),
+      and count if score_perm(candidate) > baseline_seed_score.
+    """
+    seed_genes = [g for g in seed_genes if g in graph]
+    candidate_genes = [g for g in candidate_genes if g in graph]
+    candidate_genes = list(dict.fromkeys(candidate_genes))
+
+    if not seed_genes or not candidate_genes:
+        return {g: 1.0 for g in candidate_genes}
+
+    actual_scores = random_walk_with_restart(graph, seed_genes, restart_prob=restart_prob)
+    seed_vals = [actual_scores.get(g, 0.0) for g in seed_genes]
+
+    if compare_seed_stat == "max":
+        baseline = max(seed_vals) if seed_vals else 0.0
+    else:
+        baseline = (sum(seed_vals) / len(seed_vals)) if seed_vals else 0.0
+
+    hubs = identify_hub_genes(graph, percentile=hub_percentile) if exclude_hubs_from_sampling else set()
+    population = [n for n in graph.nodes() if n not in hubs and n not in seed_genes]
+
+    if len(population) < len(seed_genes):
+        population = [n for n in graph.nodes() if n not in seed_genes]
+
+    rng = random.Random(random_state)
+
+    Y: dict[str, int] = {g: 0 for g in candidate_genes}
+    k = len(seed_genes)
+
+    for _ in range(int(permutations)):
+        perm_seeds = rng.sample(population, k=min(k, len(population)))
+        perm_scores = random_walk_with_restart(graph, perm_seeds, restart_prob=restart_prob)
+
+        for g in candidate_genes:
+            if perm_scores.get(g, 0.0) > baseline:
+                Y[g] += 1
+
+    return {g: (Y[g] / float(permutations)) for g in candidate_genes}
+
+
 def top_rwr_genes(
     graph: nx.Graph,
     seed_genes: list[str],
@@ -111,19 +171,23 @@ def top_rwr_genes(
     exclude: Iterable[str] | None = None,
     exclude_hubs: bool = True,
     hub_percentile: float = 0.99,
-    runs: int = 25,
+    runs: int = 1,
     seed_subset_frac: float = 0.8,
     random_state: int | None = 42,
+    permutation_test: bool = True,
+    permutations: int = 50,
+    alpha: float = 0.05,
 ) -> list[tuple[str, float]]:
     """
     Get top-k genes by RWR score.
 
     - Excludes seed genes by default.
-    - Optionally excludes hub genes (top `hub_percentile` by degree).
+    - Optionally excludes hub genes.
     - If `runs` > 1, runs RWR multiple times on random subsets of the seed genes and
-      returns genes ranked by mean stationary probability across runs.
+      ranks genes by mean stationary probability across runs.
+    - If `permutation_test` is True, filters candidates to those with p-value < alpha
+      using the permutation test described in the prompt.
     """
-    print(f"Running RWR with restart_prob={restart_prob}, top_k={top_k}, runs={runs}")
     exclude_set = set(exclude) if exclude is not None else set(seed_genes)
     if exclude_hubs:
         exclude_set |= identify_hub_genes(graph, percentile=hub_percentile)
@@ -131,28 +195,44 @@ def top_rwr_genes(
     seed_genes = [g for g in seed_genes if g in graph]
     if not seed_genes:
         return []
-    
+
     r = max(1, int(runs))
     if r == 1:
         scores = random_walk_with_restart(graph, seed_genes, restart_prob=restart_prob)
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
-        return [(g, s) for g, s in ranked if g not in exclude_set][:top_k]
+        candidates = [(g, s) for g, s in ranked if g not in exclude_set]
+    else:
+        rng = random.Random(random_state)
+        score_runs: list[dict[str, float]] = []
 
-    rng = random.Random(random_state)
-    score_runs: list[dict[str, float]] = []
+        for _ in range(r):
+            if len(seed_genes) == 1:
+                chosen = seed_genes
+            else:
+                k = max(1, int(math.ceil(seed_subset_frac * len(seed_genes))))
+                chosen = rng.sample(seed_genes, k=min(k, len(seed_genes)))
+            score_runs.append(random_walk_with_restart(graph, chosen, restart_prob=restart_prob))
 
+        avg_scores = _aggregate_scores(score_runs)
+        ranked = sorted(avg_scores.items(), key=lambda kv: kv[1], reverse=True)
+        candidates = [(g, s) for g, s in ranked if g not in exclude_set]
 
-    for _ in range(r):
-        x=_*0.001
-        if len(seed_genes) == 1:
-            chosen = seed_genes
-        else:
-            k = max(1, int(math.ceil(seed_subset_frac * len(seed_genes))))
-            chosen = rng.sample(seed_genes, k=min(k, len(seed_genes)))
-        score_runs.append(random_walk_with_restart(graph, chosen, restart_prob=restart_prob-x))
+    candidates = candidates[: max(top_k * 5, top_k)]
 
-    avg_scores = _aggregate_scores(score_runs)
-    ranked = sorted(avg_scores.items(), key=lambda kv: kv[1], reverse=True)
-    print("Excluded genes:", exclude_set)
-    filtered = [(g, s) for g, s in ranked if g not in exclude_set]
-    return filtered[:top_k]
+    if not permutation_test:
+        return candidates[:top_k]
+
+    candidate_genes = [g for g, _ in candidates]
+    pvals = permutation_pvalues(
+        graph,
+        seed_genes=seed_genes,
+        candidate_genes=candidate_genes,
+        restart_prob=restart_prob,
+        permutations=permutations,
+        random_state=random_state,
+        exclude_hubs_from_sampling=exclude_hubs,
+        hub_percentile=hub_percentile,
+    )
+
+    kept = [(g, s) for g, s in candidates if pvals.get(g, 1.0) < alpha]
+    return kept[:top_k]
