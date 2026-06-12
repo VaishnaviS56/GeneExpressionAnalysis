@@ -5,12 +5,12 @@ import io
 import networkx as nx
 import streamlit as st
 import streamlit.components.v1 as components
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from gea_agent.agent.graph import build_app
 
 
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True), override=False)
 
 st.set_page_config(page_title="GEA Agent", layout="wide")
 st.title("GEA Agent (LangGraph + STRING + NetworkX)")
@@ -29,12 +29,28 @@ def _render_technical_tables(meta: dict, graph: nx.Graph | None):
     if not isinstance(meta, dict):
         return
 
+    deg_analysis = meta.get("deg_analysis")
     rwr = meta.get("rwr_genes")
     enrichr = meta.get("enrichr")
 
+    if isinstance(deg_analysis, dict):
+        rows = deg_analysis.get("rows")
+        genes = deg_analysis.get("genes", [])
+        st.subheader("Differentially expressed genes")
+        status = deg_analysis.get("status")
+        message = deg_analysis.get("message")
+        if status and status != "ok":
+            st.info(str(message or "DEG output is not ready yet."))
+        if isinstance(genes, list) and genes:
+            st.caption(f"{len(genes)} genes detected from the DEG output.")
+        if isinstance(rows, list) and rows:
+            st.table(rows[:10])
+        elif status == "ok":
+            st.info("The DEG CSV was loaded, but no rows were found.")
+
     if isinstance(rwr, list) and rwr:
         st.subheader("Random Walk with Restart (Top 20)")
-        st.table([{"gene": g, "score": float(s)} for g, s in rwr])
+        st.table([{"gene": g, "score": float(s)} for g, s in rwr[:20]])
 
     if isinstance(enrichr, dict):
         libs = enrichr.get("libraries")
@@ -89,6 +105,12 @@ def _render_sidebar():
     meta = st.session_state.last_meta or {}
     if not isinstance(meta, dict):
         meta = {}
+
+    deg_analysis = meta.get("deg_analysis")
+    if isinstance(deg_analysis, dict):
+        deg_genes = deg_analysis.get("genes", [])
+        if isinstance(deg_genes, list):
+            st.sidebar.metric("DEG genes", len(deg_genes))
 
     net = meta.get("network")
     if isinstance(net, dict):

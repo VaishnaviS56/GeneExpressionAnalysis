@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from gea_agent.agent.state import AgentState, Route
 from gea_agent.config import SETTINGS
 from gea_agent.tools.classify_query import classify_query
+from gea_agent.tools.deg_analysis import run_deg_r_analysis
 from gea_agent.tools.enrichr import enrichr_pathways
 from gea_agent.tools.llm import get_llm
 from gea_agent.tools.pyvis_visualizer import build_pyvis_html
@@ -41,10 +42,19 @@ def node_general_answer(state: AgentState) -> AgentState:
     return {"answer": getattr(resp, "content", "")}
 
 
+def node_run_deg(state: AgentState) -> AgentState:
+    deg_result = run_deg_r_analysis()
+    return {
+        "deg_analysis": deg_result,
+        "deg_genes": deg_result.get("genes", []),
+    }
+
+
 def node_fetch_string(state: AgentState) -> AgentState:
     """Build STRING graph from downloaded local files."""
-    genes = state.get("genes")
-    print("genes=",genes)
+    query_genes = state.get("genes") or []
+    deg_genes = state.get("deg_genes") or []
+    genes = list(dict.fromkeys(query_genes + deg_genes))
     graph = build_weighted_graph_from_string_files(
         genes=genes,
         info_path=SETTINGS.string_info_path,
@@ -66,8 +76,10 @@ def _graph_summary(graph: nx.Graph) -> dict[str, object]:
 def node_rwr(state: AgentState) -> AgentState:
     graph = state.get("graph")
     genes = state.get("genes")
-    nx.write_graphml(graph, "my_graph3.graphml")
-    rwr = top_rwr_genes(graph, genes, top_k=30, restart_prob=0.5)
+    if not isinstance(graph, nx.Graph) or graph.number_of_nodes() == 0:
+        return {"rwr_genes": []}
+
+    rwr = top_rwr_genes(graph, genes or [], top_k=30, restart_prob=0.5)
     return {"rwr_genes": rwr}
 
 
@@ -90,7 +102,6 @@ def node_visualize(state: AgentState) -> AgentState:
 
     html_path = build_pyvis_html(
         graph,
-        title="STRING Network",
         output_path="pyvis_network.html",
         select_top_degree=300,
     )
@@ -104,17 +115,22 @@ def node_synthesize(state: AgentState) -> AgentState:
     rwr = state.get("rwr_genes")
     enrichr = state.get("enrichr")
     pyvis_html_path = state.get("pyvis_html_path")
+    deg_analysis = state.get("deg_analysis")
+    deg_genes = state.get("deg_genes")
 
     summary = _graph_summary(graph)
     answer = synthesize_technical_response(
         user_query=query,
         seed_genes=genes,
+        deg_analysis=deg_analysis,
         rwr_genes=rwr,
         graph=graph,
         enrichr=enrichr,
     )
 
     meta = {
+        "deg_analysis": deg_analysis,
+        "deg_genes": deg_genes,
         "network": summary,
         "rwr_genes": rwr,
         "enrichr": enrichr,
@@ -129,6 +145,7 @@ def build_app():
     graph.add_node("classify", node_classify)
     graph.add_node("general_answer", node_general_answer)
 
+    graph.add_node("run_deg", node_run_deg)
     graph.add_node("fetch_string", node_fetch_string)
     graph.add_node("rwr", node_rwr)
     graph.add_node("enrichr", node_enrichr)
@@ -142,12 +159,13 @@ def build_app():
         _route,
         {
             "general": "general_answer",
-            "technical": "fetch_string",
+            "technical": "run_deg",
         },
     )
 
     graph.add_edge("general_answer", END)
 
+    graph.add_edge("run_deg", "fetch_string")
     graph.add_edge("fetch_string", "rwr")
     graph.add_edge("rwr", "enrichr")
     graph.add_edge("enrichr", "visualize")

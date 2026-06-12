@@ -12,6 +12,10 @@ class AgentState(TypedDict, total=False):
     query: str
     classification: QueryClassification
 
+    # DEG branch
+    deg_analysis: dict[str, Any]
+    deg_genes: list[str]
+
     # technical branch
     genes: list[str]
     graph: nx.Graph

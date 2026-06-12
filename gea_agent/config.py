@@ -2,12 +2,34 @@ from __future__ import annotations
 
 import os
 
+from dotenv import find_dotenv, load_dotenv
+
+
+load_dotenv(find_dotenv(usecwd=True), override=False)
+
 
 class Settings:
     groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
     temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
     string_required_score: int = int(os.getenv("STRING_REQUIRED_SCORE", "900"))
+
+    deg_r_script_path: str = os.getenv(
+        "DEG_R_SCRIPT_PATH",
+        r"C:\Users\vaish\Downloads\T2D_gene_expression\dee2_t2d.R",
+    )
+    deg_supporting_files_dir: str = os.getenv(
+        "DEG_SUPPORTING_FILES_DIR",
+        r"C:\Users\vaish\Downloads\T2D_gene_expression",
+    )
+    deg_output_csv_path: str = os.getenv(
+        "DEG_OUTPUT_CSV_PATH",
+        r"C:\Users\vaish\Downloads\T2D_gene_expression\DEG_T2D_LFC1.csv",
+    )
+    rscript_executable: str = os.getenv(
+        "RSCRIPT_EXECUTABLE",
+        os.getenv("R_EXECUTABLE", "Rscript"),
+    )
 
     # Local STRING files (downloaded)
     # Point these to your downloaded files (repo-relative or absolute paths).
