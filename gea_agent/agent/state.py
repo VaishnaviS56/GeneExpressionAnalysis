@@ -12,6 +12,11 @@ class AgentState(TypedDict, total=False):
     query: str
     classification: QueryClassification
 
+    # disease literature branch
+    disease_name: str
+    openalex_papers: list[dict[str, Any]]
+    openalex_genes: list[str]
+
     # DEG branch
     deg_analysis: dict[str, Any]
     deg_genes: list[str]

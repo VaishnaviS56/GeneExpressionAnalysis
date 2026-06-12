@@ -29,9 +29,36 @@ def _render_technical_tables(meta: dict, graph: nx.Graph | None):
     if not isinstance(meta, dict):
         return
 
+    disease_name = meta.get("disease_name")
+    openalex_papers = meta.get("openalex_papers")
+    openalex_genes = meta.get("openalex_genes")
     deg_analysis = meta.get("deg_analysis")
     rwr = meta.get("rwr_genes")
     enrichr = meta.get("enrichr")
+
+    if isinstance(disease_name, str) and disease_name:
+        st.subheader("Disease query")
+        st.caption(disease_name)
+
+    if isinstance(openalex_papers, list) and openalex_papers:
+        st.subheader("OpenAlex papers")
+        st.caption(f"{len(openalex_papers)} papers scanned for genes.")
+        preview = []
+        for paper in openalex_papers[:5]:
+            if not isinstance(paper, dict):
+                continue
+            preview.append(
+                {
+                    "title": paper.get("title"),
+                    "year": paper.get("year"),
+                    "genes": ", ".join(paper.get("genes", [])[:5]) if isinstance(paper.get("genes"), list) else "",
+                }
+            )
+        if preview:
+            st.table(preview)
+
+    if isinstance(openalex_genes, list) and openalex_genes:
+        st.caption(f"OpenAlex gene list: {len(openalex_genes)} genes")
 
     if isinstance(deg_analysis, dict):
         rows = deg_analysis.get("rows")
@@ -111,6 +138,10 @@ def _render_sidebar():
         deg_genes = deg_analysis.get("genes", [])
         if isinstance(deg_genes, list):
             st.sidebar.metric("DEG genes", len(deg_genes))
+
+    openalex_genes = meta.get("openalex_genes")
+    if isinstance(openalex_genes, list):
+        st.sidebar.metric("OpenAlex genes", len(openalex_genes))
 
     net = meta.get("network")
     if isinstance(net, dict):

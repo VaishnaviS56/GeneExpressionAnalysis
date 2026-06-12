@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from gea_agent.agent.state import AgentState, Route
 from gea_agent.config import SETTINGS
 from gea_agent.tools.classify_query import classify_query
+from gea_agent.tools.disease_literature import fetch_openalex_papers_and_genes, identify_disease_from_query
 from gea_agent.tools.deg_analysis import run_deg_r_analysis
 from gea_agent.tools.enrichr import enrichr_pathways
 from gea_agent.tools.llm import get_llm
@@ -42,6 +43,24 @@ def node_general_answer(state: AgentState) -> AgentState:
     return {"answer": getattr(resp, "content", "")}
 
 
+def node_extract_disease(state: AgentState) -> AgentState:
+    query = state.get("query") or ""
+    disease_result = identify_disease_from_query(query)
+    return {"disease_name": disease_result.get("disease", "")}
+
+
+def node_openalex(state: AgentState) -> AgentState:
+    disease_name = state.get("disease_name") or ""
+    openalex_result = fetch_openalex_papers_and_genes(disease_name, top_n=20)
+    genes = openalex_result.get("genes", [])
+    return {
+        "disease_name": openalex_result.get("disease", disease_name),
+        "openalex_papers": openalex_result.get("papers", []),
+        "openalex_genes": genes,
+        "genes": genes,
+    }
+
+
 def node_run_deg(state: AgentState) -> AgentState:
     deg_result = run_deg_r_analysis()
     return {
@@ -53,8 +72,9 @@ def node_run_deg(state: AgentState) -> AgentState:
 def node_fetch_string(state: AgentState) -> AgentState:
     """Build STRING graph from downloaded local files."""
     query_genes = state.get("genes") or []
+    disease_genes = state.get("openalex_genes") or []
     deg_genes = state.get("deg_genes") or []
-    genes = list(dict.fromkeys(query_genes + deg_genes))
+    genes = list(dict.fromkeys(query_genes + disease_genes + deg_genes))
     graph = build_weighted_graph_from_string_files(
         genes=genes,
         info_path=SETTINGS.string_info_path,
@@ -115,6 +135,8 @@ def node_synthesize(state: AgentState) -> AgentState:
     rwr = state.get("rwr_genes")
     enrichr = state.get("enrichr")
     pyvis_html_path = state.get("pyvis_html_path")
+    disease_name = state.get("disease_name")
+    openalex_papers = state.get("openalex_papers")
     deg_analysis = state.get("deg_analysis")
     deg_genes = state.get("deg_genes")
 
@@ -129,6 +151,9 @@ def node_synthesize(state: AgentState) -> AgentState:
     )
 
     meta = {
+        "disease_name": disease_name,
+        "openalex_papers": openalex_papers,
+        "openalex_genes": genes,
         "deg_analysis": deg_analysis,
         "deg_genes": deg_genes,
         "network": summary,
@@ -145,6 +170,8 @@ def build_app():
     graph.add_node("classify", node_classify)
     graph.add_node("general_answer", node_general_answer)
 
+    graph.add_node("extract_disease", node_extract_disease)
+    graph.add_node("openalex", node_openalex)
     graph.add_node("run_deg", node_run_deg)
     graph.add_node("fetch_string", node_fetch_string)
     graph.add_node("rwr", node_rwr)
@@ -159,12 +186,14 @@ def build_app():
         _route,
         {
             "general": "general_answer",
-            "technical": "run_deg",
+            "technical": "extract_disease",
         },
     )
 
     graph.add_edge("general_answer", END)
 
+    graph.add_edge("extract_disease", "openalex")
+    graph.add_edge("openalex", "run_deg")
     graph.add_edge("run_deg", "fetch_string")
     graph.add_edge("fetch_string", "rwr")
     graph.add_edge("rwr", "enrichr")
