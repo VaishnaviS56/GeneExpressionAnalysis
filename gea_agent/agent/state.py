@@ -23,6 +23,7 @@ class AgentState(TypedDict, total=False):
 
     # technical branch
     genes: list[str]
+    rwr_seed_genes: list[str]
     graph: nx.Graph
     rwr_genes: list[tuple[str, float]]
     enrichr: dict[str, Any]

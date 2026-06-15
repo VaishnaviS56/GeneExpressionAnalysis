@@ -16,15 +16,15 @@ class Settings:
 
     deg_r_script_path: str = os.getenv(
         "DEG_R_SCRIPT_PATH",
-        r"C:\Users\vaish\Downloads\T2D_gene_expression\dee2_t2d.R",
+        r"C:\Vaishanvi\TCS\GEA\dee2_data.R",
     )
     deg_supporting_files_dir: str = os.getenv(
         "DEG_SUPPORTING_FILES_DIR",
-        r"C:\Users\vaish\Downloads\T2D_gene_expression",
+        r"C:\Vaishanvi\TCS\GEA",
     )
     deg_output_csv_path: str = os.getenv(
         "DEG_OUTPUT_CSV_PATH",
-        r"C:\Users\vaish\Downloads\T2D_gene_expression\DEG_T2D_LFC1.csv",
+        r"C:\Vaishanvi\TCS\GEA\\DEG_T2D_LFC1.csv",
     )
     rscript_executable: str = os.getenv(
         "RSCRIPT_EXECUTABLE",

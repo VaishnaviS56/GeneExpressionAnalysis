@@ -31,7 +31,6 @@ def _render_technical_tables(meta: dict, graph: nx.Graph | None):
 
     disease_name = meta.get("disease_name")
     openalex_papers = meta.get("openalex_papers")
-    openalex_genes = meta.get("openalex_genes")
     deg_analysis = meta.get("deg_analysis")
     rwr = meta.get("rwr_genes")
     enrichr = meta.get("enrichr")
@@ -43,22 +42,31 @@ def _render_technical_tables(meta: dict, graph: nx.Graph | None):
     if isinstance(openalex_papers, list) and openalex_papers:
         st.subheader("OpenAlex papers")
         st.caption(f"{len(openalex_papers)} papers scanned for genes.")
-        preview = []
-        for paper in openalex_papers[:5]:
+        max_gene_count = 0
+        for paper in openalex_papers:
             if not isinstance(paper, dict):
                 continue
+            genes = paper.get("genes", [])
+            if isinstance(genes, list):
+                max_gene_count = max(max_gene_count, len(genes))
+        filtered_papers = [
+            paper
+            for paper in openalex_papers
+            if isinstance(paper, dict)
+            and isinstance(paper.get("genes"), list)
+            and len(paper.get("genes", [])) == max_gene_count
+            and max_gene_count > 0
+        ]
+        st.caption(f"Showing only papers with the most genes identified: {max_gene_count}.")
+        preview = []
+        for paper in filtered_papers[:5]:
             preview.append(
                 {
                     "title": paper.get("title"),
-                    "year": paper.get("year"),
-                    "genes": ", ".join(paper.get("genes", [])[:5]) if isinstance(paper.get("genes"), list) else "",
                 }
             )
         if preview:
             st.table(preview)
-
-    if isinstance(openalex_genes, list) and openalex_genes:
-        st.caption(f"OpenAlex gene list: {len(openalex_genes)} genes")
 
     if isinstance(deg_analysis, dict):
         rows = deg_analysis.get("rows")
@@ -138,10 +146,6 @@ def _render_sidebar():
         deg_genes = deg_analysis.get("genes", [])
         if isinstance(deg_genes, list):
             st.sidebar.metric("DEG genes", len(deg_genes))
-
-    openalex_genes = meta.get("openalex_genes")
-    if isinstance(openalex_genes, list):
-        st.sidebar.metric("OpenAlex genes", len(openalex_genes))
 
     net = meta.get("network")
     if isinstance(net, dict):

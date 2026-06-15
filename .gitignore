@@ -1,4 +1,5 @@
 # Generated artifacts
 string_full_graph.pkl
 *.graphml
+.env
 __pycache__/

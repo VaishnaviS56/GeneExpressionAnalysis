@@ -34,7 +34,7 @@ def build_pyvis_html(
         raise ValueError("Cannot visualize an empty graph.")
 
     net = Network(height=height, width=width, directed=directed, notebook=notebook, bgcolor="#0f172a", font_color="#e2e8f0")
-    net.heading = title
+    # net.heading = title
 
     nodes = list(graph.nodes())
     if select_top_degree is not None and graph.number_of_nodes() > select_top_degree:

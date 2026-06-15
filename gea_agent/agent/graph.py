@@ -82,7 +82,7 @@ def node_fetch_string(state: AgentState) -> AgentState:
         required_score=SETTINGS.string_required_score,
         mode=SETTINGS.string_local_mode,
     )
-    return {"graph": graph, "genes": genes}
+    return {"graph": graph, "genes": genes, "rwr_seed_genes": genes}
 
 
 def _graph_summary(graph: nx.Graph) -> dict[str, object]:
@@ -97,10 +97,10 @@ def node_rwr(state: AgentState) -> AgentState:
     graph = state.get("graph")
     genes = state.get("genes")
     if not isinstance(graph, nx.Graph) or graph.number_of_nodes() == 0:
-        return {"rwr_genes": []}
+        return {"rwr_genes": [], "rwr_seed_genes": genes or []}
 
     rwr = top_rwr_genes(graph, genes or [], top_k=30, restart_prob=0.5)
-    return {"rwr_genes": rwr}
+    return {"rwr_genes": rwr, "rwr_seed_genes": genes or []}
 
 
 def node_enrichr(state: AgentState) -> AgentState:
@@ -139,6 +139,7 @@ def node_synthesize(state: AgentState) -> AgentState:
     openalex_papers = state.get("openalex_papers")
     deg_analysis = state.get("deg_analysis")
     deg_genes = state.get("deg_genes")
+    rwr_seed_genes = state.get("rwr_seed_genes")
 
     summary = _graph_summary(graph)
     answer = synthesize_technical_response(
@@ -156,6 +157,7 @@ def node_synthesize(state: AgentState) -> AgentState:
         "openalex_genes": genes,
         "deg_analysis": deg_analysis,
         "deg_genes": deg_genes,
+        "rwr_seed_genes": rwr_seed_genes,
         "network": summary,
         "rwr_genes": rwr,
         "enrichr": enrichr,
