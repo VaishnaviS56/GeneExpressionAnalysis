@@ -1,0 +1,13 @@
+SRR_accession	QC_summary	SRX_accession	SRS_accession	SRP_accession	Experiment_title	GEO_series
+SRR12438069	WARN(1,5,7)	SRX8933741	SRS7190059	SRP277202	GSM4724849: islet preparation 1 under control condition [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438070	WARN(1,5,7)	SRX8933742	SRS7190060	SRP277202	GSM4724850: islet preparation 1 under palmitate exposure [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438071	PASS	SRX8933743	SRS7190063	SRP277202	GSM4724851: islet preparation 2 under control condition [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438072	PASS	SRX8933744	SRS7190061	SRP277202	GSM4724852: islet preparation 2 under palmitate exposure [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438073	PASS	SRX8933745	SRS7190062	SRP277202	GSM4724853: islet preparation 3 under control condition [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438074	PASS	SRX8933746	SRS7190064	SRP277202	GSM4724854: islet preparation 3 under palmitate exposure [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438075	WARN(5,7)	SRX8933747	SRS7190065	SRP277202	GSM4724855: islet preparation 4 under control condition [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438076	PASS	SRX8933748	SRS7190066	SRP277202	GSM4724856: islet preparation 4 under palmitate exposure [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438077	PASS	SRX8933749	SRS7190067	SRP277202	GSM4724857: islet preparation 5 under control condition [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438078	WARN(1,5,7)	SRX8933750	SRS7190068	SRP277202	GSM4724858: islet preparation 5 under palmitate exposure [re-analysis]; Homo sapiens; RNA-Seq	GSE156109
+SRR12438079	PASS	SRX8933751	SRS7190069	SRP277202	GSM4724859: islet preparation 6 under control condition; Homo sapiens; RNA-Seq	GSE156109
+SRR12438080	PASS	SRX8933752	SRS7190070	SRP277202	GSM4724860: islet preparation 6 under palmitate exposure; Homo sapiens; RNA-Seq	GSE156109

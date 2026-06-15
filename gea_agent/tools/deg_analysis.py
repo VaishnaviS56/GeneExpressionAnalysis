@@ -5,6 +5,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from typing import Any
+import os
 
 from gea_agent.config import SETTINGS
 
@@ -113,6 +114,10 @@ def run_deg_r_analysis() -> dict[str, Any]:
     executable = _resolve_rscript_executable(SETTINGS.rscript_executable)
     print(SETTINGS.rscript_executable)
 
+    supporting_dir = Path(os.path.join(os.getcwd(), supporting_dir))
+    script_path = Path(os.path.join(os.getcwd(), script_path))
+    output_path = Path(os.path.join(os.getcwd(), output_path))
+
     if _placeholder_path(SETTINGS.deg_r_script_path) or _placeholder_path(SETTINGS.deg_output_csv_path):
         return {
             "status": "not_configured",
@@ -137,6 +142,7 @@ def run_deg_r_analysis() -> dict[str, Any]:
         }
 
     if not script_path.exists():
+        print(f"DEG R script not found at: {script_path}")
         return {
             "status": "missing_script",
             "script_path": str(script_path),

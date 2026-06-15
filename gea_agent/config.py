@@ -14,17 +14,29 @@ class Settings:
 
     string_required_score: int = int(os.getenv("STRING_REQUIRED_SCORE", "900"))
 
+    # deg_r_script_path: str = os.getenv(
+    #     "DEG_R_SCRIPT_PATH",
+    #     r"C:\Vaishanvi\TCS\GEA\dee2_data.R",
+    # )
+    # deg_supporting_files_dir: str = os.getenv(
+    #     "DEG_SUPPORTING_FILES_DIR",
+    #     r"C:\Vaishanvi\TCS\GEA",
+    # )
+    # deg_output_csv_path: str = os.getenv(
+    #     "DEG_OUTPUT_CSV_PATH",
+    #     r"C:\Vaishanvi\TCS\GEA\\DEG_T2D_LFC1.csv",
+    # )
     deg_r_script_path: str = os.getenv(
         "DEG_R_SCRIPT_PATH",
-        r"C:\Vaishanvi\TCS\GEA\dee2_data.R",
+        r"GEA\dee2_t2d.R",
     )
     deg_supporting_files_dir: str = os.getenv(
         "DEG_SUPPORTING_FILES_DIR",
-        r"C:\Vaishanvi\TCS\GEA",
+        r"GEA",
     )
     deg_output_csv_path: str = os.getenv(
         "DEG_OUTPUT_CSV_PATH",
-        r"C:\Vaishanvi\TCS\GEA\\DEG_T2D_LFC1.csv",
+        r"GEA\DEG_T2D_LFC1.csv",
     )
     rscript_executable: str = os.getenv(
         "RSCRIPT_EXECUTABLE",
