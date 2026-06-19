@@ -118,11 +118,14 @@ def synthesize_technical_response(
         payload["rwr"] = _compact_rwr(rwr_genes)
         payload["net"] = {"n": graph.number_of_nodes(), "e": graph.number_of_edges()}
 
+    print("Payload: ",payload)
     resp = llm.invoke(
         [
             (
                 "system",
-                "Write a brief bioinformatics summary from compact JSON. "
+                "You are Gene Expression Assistant, an AI assistant for analyzing gene expression data and interpreting the results. "
+                "If any field is missing, ignore it and do not mention it in the response. Compile your sysnthesis with the remaining information"
+                "You don't have to mention the arms or any processing you are doing, just synthesize the information into a concise summary that answers the user's query. "
                 "If arm is srp, summarize DEG and pathway results only. "
                 "If arm is opentargets, summarize the gene-disease association result only. "
                 "If arm is memory_rwr, summarize the RWR results on previously stored DEG genes only. "

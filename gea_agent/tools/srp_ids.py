@@ -12,4 +12,8 @@ def extract_srp_ids_from_text(text: str) -> list[str]:
         value = match.group(0).upper()
         if value not in ids:
             ids.append(value)
-    return ids
+    return {
+        "status": "ok",
+        "srp_ids": ids,
+        "message": f"Extracted {len(ids)} SRP IDs from text."
+    }

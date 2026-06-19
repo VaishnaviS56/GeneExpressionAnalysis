@@ -188,6 +188,7 @@ def top_rwr_genes(
     - If `permutation_test` is True, filters candidates to those with p-value < alpha
       using the permutation test described in the prompt.
     """
+    print("RWR Seed Genes: ", seed_genes)
     exclude_set = set(exclude) if exclude is not None else set(seed_genes)
     if exclude_hubs:
         exclude_set |= identify_hub_genes(graph, percentile=hub_percentile)

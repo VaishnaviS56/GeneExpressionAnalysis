@@ -84,7 +84,7 @@ def enrichr_pathways(
 ) -> dict[str, Any]:
     genes = [g.strip().upper() for g in genes if g and g.strip()]
     genes = list(dict.fromkeys(genes))
-
+    print("Enrichr Genes: ", genes)
     background_genes = background_genes or []
     background_genes = [g.strip().upper() for g in background_genes if g and g.strip()]
     background_genes = list(dict.fromkeys(background_genes + genes))

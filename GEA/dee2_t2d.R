@@ -3,7 +3,7 @@ library(jsonlite)
 library(XML)
 library("DESeq2")
 
-options(timeout = 500)
+options(timeout = 1500)
 
 args <- commandArgs(trailingOnly = TRUE)
 
