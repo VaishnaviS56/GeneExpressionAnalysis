@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import csv
-import subprocess
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 import os
@@ -100,7 +100,7 @@ def _read_deg_csv(csv_path: Path) -> dict[str, Any]:
     }
 
 
-def run_deg_r_analysis() -> dict[str, Any]:
+def run_deg_r_analysis(*, srp_ids: list[str] | None = None) -> dict[str, Any]:
     """
     Run the hard-coded R DEG workflow and parse the resulting CSV.
 
@@ -112,10 +112,9 @@ def run_deg_r_analysis() -> dict[str, Any]:
     script_path = Path(SETTINGS.deg_r_script_path)
     supporting_dir = Path(SETTINGS.deg_supporting_files_dir)
     executable = _resolve_rscript_executable(SETTINGS.rscript_executable)
-    print(SETTINGS.rscript_executable)
 
-    supporting_dir = Path(os.path.join(os.getcwd(), supporting_dir))
     script_path = Path(os.path.join(os.getcwd(), script_path))
+    supporting_dir = Path(os.path.join(os.getcwd(), supporting_dir))
     output_path = Path(os.path.join(os.getcwd(), output_path))
 
     if _placeholder_path(SETTINGS.deg_r_script_path) or _placeholder_path(SETTINGS.deg_output_csv_path):
@@ -129,8 +128,18 @@ def run_deg_r_analysis() -> dict[str, Any]:
             "message": "DEG R paths are still placeholders.",
         }
 
+    if not srp_ids:
+        return {
+            "status": "no_srp_ids",
+            "script_path": str(script_path),
+            "supporting_files_dir": str(supporting_dir),
+            "output_csv_path": str(output_path),
+            "genes": [],
+            "rows": [],
+            "message": "No SRP ids were provided to the DEG runner.",
+        }
+
     if not executable:
-        print(f"Could not resolve Rscript executable from: {SETTINGS.rscript_executable}")
         return {
             "status": "rscript_missing",
             "script_path": str(script_path),
@@ -142,7 +151,6 @@ def run_deg_r_analysis() -> dict[str, Any]:
         }
 
     if not script_path.exists():
-        print(f"DEG R script not found at: {script_path}")
         return {
             "status": "missing_script",
             "script_path": str(script_path),
@@ -156,8 +164,10 @@ def run_deg_r_analysis() -> dict[str, Any]:
     supporting_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        print(srp_ids)
+        print(f"[tool] DEG subprocess: {executable} {script_path} {' '.join(str(s) for s in srp_ids or [])}")
         subprocess.run(
-            [executable, str(script_path)],
+            [executable, str(script_path), *[str(s) for s in srp_ids or []]],
             cwd=str(supporting_dir),
             check=True,
             capture_output=True,
@@ -174,6 +184,11 @@ def run_deg_r_analysis() -> dict[str, Any]:
             "message": f"Could not find the Rscript executable: {exc}",
         }
     except subprocess.CalledProcessError as exc:
+        print("[tool] DEG subprocess failed")
+        print("[tool] stdout:")
+        print(exc.stdout or "")
+        print("[tool] stderr:")
+        print(exc.stderr or "")
 
         return {
             "status": "run_failed",

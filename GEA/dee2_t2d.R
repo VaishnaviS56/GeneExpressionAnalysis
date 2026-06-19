@@ -1,39 +1,50 @@
 library("getDEE2")
+library(jsonlite)
+library(XML)
+library("DESeq2")
 
-#packageVersion("getDEE2")
-#sessionInfo()
+options(timeout = 500)
 
-# mdat<-getDEE2Metadata("hsapiens")
+args <- commandArgs(trailingOnly = TRUE)
 
-# # mdat1<-mdat[which((mdat$SRP_accession %in% c("SRP035268","SRP277202")) & 
-                    # # (mdat$QC_summary %in% c("PASS","WARN(8)"))),]
-# mdat1 <- mdat[which((mdat$SRP_accession %in% c("SRP035268","SRP277202")) & 
-                    # (mdat$QC_summary == "PASS" | grepl("WARN", mdat$QC_summary))),]
+if (length(args) == 0) {
+  stop("Please provide at least one SRP accession")
+}
 
-# SRRlist<-as.vector(mdat1$SRR_accession)
+target_srp <- args
 
-# x <- getDEE2("hsapiens", SRRlist, metadata=mdat, counts = "GeneCounts",
-             # outfile="T2D_DEE2_data.zip", legacy=TRUE)
-			 
-			 
-#test <- getDEE2("hsapiens",SRRlist,counts = "GeneCounts",outfile="T2D_DEE2_test.zip",legacy = TRUE)
-			 
-			 
-#x <- getDEE2("hsapiens", SRRlist, metadata=mdat, counts = "GeneCounts",outfile="T2D_DEE2_data.zip", legacy=FALSE)
-			 
-#x <- getDEE2("hsapiens",SRRlist,metadata = mdat,counts = "GeneCounts",outfile = "T2D_DEE2_data.zip")
+print(target_srp)
 
-#unzip("T2D_DEE2_data.zip", exdir = "dee2_data")
-#geneCounts <- read.table("dee2_data/GeneCountMatrix.tsv",header = TRUE,row.names = 1,sep = "\t",check.names = FALSE)
-#x <- list(GeneCounts = geneCounts)
+cache_dir <- "cache"
 
-#x$MetadataSummary
+if (!dir.exists(cache_dir)) {
+  dir.create(cache_dir, recursive = TRUE)
+}
 
-# Load metadata
-mdat <- getDEE2Metadata("hsapiens")
+get_cached_dee2_metadata <- function(species = "hsapiens") {
 
-# Studies of interest
-target_srp <- c("SRP035268", "SRP277202")
+  cache_file <- file.path(
+    cache_dir,
+    paste0(species, "_metadata.rds")
+  )
+
+  if (file.exists(cache_file)) {
+
+    message("Loading DEE2 metadata from cache...")
+    return(readRDS(cache_file))
+
+  } else {
+
+    message("Downloading DEE2 metadata...")
+    mdat <- getDEE2Metadata(species)
+
+    saveRDS(mdat, cache_file)
+
+    return(mdat)
+  }
+}
+
+mdat <- get_cached_dee2_metadata("hsapiens")
 
 # Filter metadata
 mdat1 <- subset(
@@ -123,12 +134,6 @@ GeneCounts <- Reduce(
     count_list
 )
 
-dim(count_list[[1]])
-dim(count_list[[2]])
-
-head(rownames(count_list[[1]]))
-head(rownames(count_list[[2]]))
-
 rownames(GeneCounts) <- GeneCounts$Row.names
 GeneCounts$Row.names <- NULL
 
@@ -143,44 +148,107 @@ x <- list(
     GeneCounts = GeneCounts
 )
 
-##Adding the metadata of first dataset
-sra.metadata=data.frame()
-if(file.exists("SraRunTable_SRP035268.txt")){
-  sra.metadata<-read.csv("SraRunTable_SRP035268.txt", header = TRUE)
+# Function to download RunInfo metadata for an SRP
+get_sra_metadata <- function(srp) {
+
+  runinfo_url <- paste0(
+    "https://trace.ncbi.nlm.nih.gov/Traces/sra-db-be/runinfo?acc=",
+    srp
+  )
+
+  read.csv(runinfo_url)
 }
 
-#Adding the metadata of second dataset
-if(file.exists("SraRunTable_SRP277202.txt")){
-  sra.metadata2<-read.csv("SraRunTable_SRP277202.txt", header = TRUE)
+# Function to retrieve treatment from BioSample
+get_treatment_from_biosample <- function(biosample_acc) {
+
+  search_url <- paste0(
+    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?",
+    "db=biosample&term=", biosample_acc, "[accn]",
+    "&retmode=json"
+  )
+
+  search <- jsonlite::fromJSON(search_url)
+
+  if (length(search$esearchresult$idlist) == 0)
+    return(NA_character_)
+
+  uid <- search$esearchresult$idlist[1]
+
+  fetch_url <- paste0(
+    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?",
+    "db=biosample&id=", uid,
+    "&retmode=xml"
+  )
+
+  xml_txt <- paste(
+    readLines(fetch_url, warn = FALSE),
+    collapse = "\n"
+  )
+
+  doc <- xmlParse(xml_txt, asText = TRUE)
+
+  attrs <- xpathApply(doc, "//Attribute", function(x) {
+    c(
+      name = xmlGetAttr(x, "attribute_name"),
+      value = xmlValue(x)
+    )
+  })
+
+  attrs <- do.call(rbind, attrs)
+
+  idx <- which(tolower(attrs[, "name"]) == "treatment")
+
+  if (length(idx) == 0)
+    return(NA_character_)
+
+  attrs[idx[1], "value"]
 }
-sra.metadata[setdiff(names(sra.metadata2),names(sra.metadata))] <- NA
-sra.metadata2[setdiff(names(sra.metadata),names(sra.metadata2))] <- NA
 
-sra.metadata<-rbind(sra.metadata,sra.metadata2)
+# Download metadata for all studies
+target_srp <- unique(mdat1$SRP_accession)
 
-sra.metadata<-sra.metadata[which(sra.metadata$Run %in% mdat1$SRR_accession),]
+metadata_list <- lapply(target_srp, get_sra_metadata)
 
-sra.metadata$disease <- as.factor(as.numeric(grepl("palmitate",
-                                sra.metadata$Treatment)))
+# Combine metadata
+sra.metadata <- do.call(rbind, metadata_list)
 
-write.csv(sra.metadata, file="T2D_metadata.csv", row.names=FALSE)
+# Keep only SRRs used in the DEE2 analysis
+sra.metadata <- sra.metadata[
+  sra.metadata$Run %in% mdat1$SRR_accession,
+]
 
-library("DESeq2")
+# Query each unique BioSample once
+unique_bs <- unique(sra.metadata$BioSample)
+
+treatment_map <- setNames(
+  sapply(unique_bs, get_treatment_from_biosample),
+  unique_bs
+)
+
+# Add treatment column
+sra.metadata$treatment <- treatment_map[
+  sra.metadata$BioSample
+]
+
+# Original disease assignment
+sra.metadata$disease <- as.factor(
+  as.numeric(
+    grepl(
+      "palmitate",
+      sra.metadata$treatment,
+      ignore.case = TRUE
+    )
+  )
+)
+
+write.csv(
+  sra.metadata,
+  file = "T2D_metadata.csv",
+  row.names = FALSE
+)
+
 x1<-x$GeneCounts[which(rowSums(x$GeneCounts)/ncol(x$GeneCounts)>=(10)),]
-cat("CLASS x$GeneCounts:\n")
-print(class(x$GeneCounts))
-
-cat("DIM x$GeneCounts:\n")
-print(dim(x$GeneCounts))
-
-cat("CLASS x1:\n")
-print(class(x1))
-
-cat("DIM x1:\n")
-print(dim(x1))
-
-cat("HEAD COLNAMES:\n")
-print(head(colnames(x1)))
 x1<-x1[,which(colnames(x1) %in% sra.metadata$Run)]
 dds <- DESeqDataSetFromMatrix(countData = x1, colData = sra.metadata, design = ~ disease)
 res <- DESeq(dds)
@@ -198,16 +266,7 @@ annots <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id",
                 "external_gene_name", "description"), 
                 values=zz$Ensembl, mart= mart, useCache = FALSE)
 
-#library(org.Hs.eg.db)
-#ann_ent <- select(org.Hs.eg.db, keys=zz$Ensembl, columns=c("SYMBOL","ENTREZID"), 
-#                        keytype="ENSEMBL")
-#zz <- merge(zz, ann_ent, by.x=0, by.y="ENSEMBL")
-
 zz <- merge(zz, annots, by.x="Ensembl", by.y="ensembl_gene_id")
-
-#library("EnhancedVolcano")
-#EnhancedVolcano(zz,lab=zz$hgnc_symbol,x="log2FoldChange",y="padj",
-#                pCutoff = 10e-2, FCcutoff = 1,)
 
 fold.cutoff=1
 df<-zz[which(((zz$log2FoldChange>fold.cutoff) | 

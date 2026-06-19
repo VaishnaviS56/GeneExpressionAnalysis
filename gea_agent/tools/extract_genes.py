@@ -324,4 +324,3 @@ def extract_genes_from_text(
         seen.add(h)
         out.append(h)
     return out
-

@@ -101,4 +101,3 @@ def build_pyvis_html(
     html_path = output_path or "pyvis_network.html"
     net.write_html(html_path)
     return str(Path(html_path).resolve())
-

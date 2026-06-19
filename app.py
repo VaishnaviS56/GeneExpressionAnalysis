@@ -13,7 +13,11 @@ from gea_agent.agent.graph import build_app
 load_dotenv(find_dotenv(usecwd=True), override=False)
 
 st.set_page_config(page_title="GEA Agent", layout="wide")
-st.title("GEA Agent (LangGraph + STRING + NetworkX)")
+st.title("GEA Agent (Planner-Executor Orchestrator + STRING + NetworkX)")
+
+app = build_app()
+
+app.get_graph().draw_mermaid_png(output_file_path="graph.png")
 
 if "app" not in st.session_state:
     st.session_state.app = build_app()
@@ -23,23 +27,64 @@ if "last_graph" not in st.session_state:
     st.session_state.last_graph = None
 if "last_meta" not in st.session_state:
     st.session_state.last_meta = None
+if "memory_deg_genes" not in st.session_state:
+    st.session_state.memory_deg_genes = []
+if "memory_deg_analysis" not in st.session_state:
+    st.session_state.memory_deg_analysis = {}
+if "memory_deg_gene_records" not in st.session_state:
+    st.session_state.memory_deg_gene_records = []
+if "memory_disease_name" not in st.session_state:
+    st.session_state.memory_disease_name = ""
+if "memory_openalex_genes" not in st.session_state:
+    st.session_state.memory_openalex_genes = []
+if "memory_opentargets_results" not in st.session_state:
+    st.session_state.memory_opentargets_results = []
+
+
+def _build_memory_summary() -> str:
+    parts: list[str] = []
+
+    if st.session_state.memory_deg_genes:
+        parts.append(f"Stored DEG genes available: {len(st.session_state.memory_deg_genes)}.")
+    if st.session_state.memory_deg_gene_records:
+        parts.append(f"Stored DEG gene records available: {len(st.session_state.memory_deg_gene_records)}.")
+    if st.session_state.memory_disease_name:
+        parts.append(f"Last disease context: {st.session_state.memory_disease_name}.")
+    if st.session_state.memory_openalex_genes:
+        parts.append(f"Stored disease literature genes available: {len(st.session_state.memory_openalex_genes)}.")
+    if st.session_state.memory_opentargets_results:
+        parts.append(f"Stored OpenTargets results available: {len(st.session_state.memory_opentargets_results)}.")
+
+    recent_messages = st.session_state.messages[-4:]
+    if recent_messages:
+        transcript = []
+        for message in recent_messages:
+            role = message.get("role", "")
+            content = " ".join(str(message.get("content", "")).split())
+            if content:
+                transcript.append(f"{role}: {content[:160]}")
+        if transcript:
+            parts.append("Recent turns: " + " | ".join(transcript))
+
+    return "\n".join(parts)
 
 
 def _render_technical_tables(meta: dict, graph: nx.Graph | None):
     if not isinstance(meta, dict):
         return
 
+    analysis_arm = meta.get("analysis_arm") or "disease"
     disease_name = meta.get("disease_name")
     openalex_papers = meta.get("openalex_papers")
     deg_analysis = meta.get("deg_analysis")
     rwr = meta.get("rwr_genes")
     enrichr = meta.get("enrichr")
 
-    if isinstance(disease_name, str) and disease_name:
+    if analysis_arm != "srp" and isinstance(disease_name, str) and disease_name:
         st.subheader("Disease query")
         st.caption(disease_name)
 
-    if isinstance(openalex_papers, list) and openalex_papers:
+    if analysis_arm != "srp" and isinstance(openalex_papers, list) and openalex_papers:
         st.subheader("OpenAlex papers")
         st.caption(f"{len(openalex_papers)} papers scanned for genes.")
         max_gene_count = 0
@@ -68,7 +113,7 @@ def _render_technical_tables(meta: dict, graph: nx.Graph | None):
         if preview:
             st.table(preview)
 
-    if isinstance(deg_analysis, dict):
+    if isinstance(deg_analysis, dict) and analysis_arm == "srp":
         rows = deg_analysis.get("rows")
         genes = deg_analysis.get("genes", [])
         st.subheader("Differentially expressed genes")
@@ -83,7 +128,12 @@ def _render_technical_tables(meta: dict, graph: nx.Graph | None):
         elif status == "ok":
             st.info("The DEG CSV was loaded, but no rows were found.")
 
-    if isinstance(rwr, list) and rwr:
+        deg_gene_records = meta.get("deg_gene_records")
+        if isinstance(deg_gene_records, list) and deg_gene_records:
+            st.caption("DEG genes with p-values preserved for downstream analysis.")
+            st.table(deg_gene_records[:10])
+
+    if analysis_arm != "srp" and isinstance(rwr, list) and rwr:
         st.subheader("Random Walk with Restart (Top 20)")
         st.table([{"gene": g, "score": float(s)} for g, s in rwr[:20]])
 
@@ -133,6 +183,26 @@ def _render_technical_tables(meta: dict, graph: nx.Graph | None):
         except FileNotFoundError:
             st.warning("PyVis visualization file was not found.")
 
+    tool_history = meta.get("tool_history")
+    if isinstance(tool_history, list) and tool_history:
+        st.subheader("Tool trace")
+        recent_history = tool_history[-20:]
+        for index, entry in enumerate(recent_history, start=1):
+            if not isinstance(entry, dict):
+                continue
+            tool_name = str(entry.get("tool", f"tool_{index}"))
+            with st.expander(f"{index}. {tool_name}", expanded=index == len(recent_history)):
+                args = entry.get("args")
+                result = entry.get("result")
+                if isinstance(args, dict) and args:
+                    st.caption("Args")
+                    st.json(args)
+                if isinstance(result, dict) and result:
+                    st.caption("Result")
+                    st.json(result)
+                else:
+                    st.info("No compact tool result recorded.")
+
 
 def _render_sidebar():
     st.sidebar.header("Network")
@@ -141,8 +211,9 @@ def _render_sidebar():
     if not isinstance(meta, dict):
         meta = {}
 
+    analysis_arm = meta.get("analysis_arm") or "disease"
     deg_analysis = meta.get("deg_analysis")
-    if isinstance(deg_analysis, dict):
+    if analysis_arm == "srp" and isinstance(deg_analysis, dict):
         deg_genes = deg_analysis.get("genes", [])
         if isinstance(deg_genes, list):
             st.sidebar.metric("DEG genes", len(deg_genes))
@@ -155,6 +226,14 @@ def _render_sidebar():
         if isinstance(top, list) and top:
             st.sidebar.caption("Top degree")
             st.sidebar.table(top)
+
+    tool_history = meta.get("tool_history")
+    if isinstance(tool_history, list) and tool_history:
+        st.sidebar.caption("Latest tool calls")
+        for entry in tool_history[-5:]:
+            if not isinstance(entry, dict):
+                continue
+            st.sidebar.write(str(entry.get("tool", "unknown")))
 
 
 _render_sidebar()
@@ -170,15 +249,48 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    invoke_state = {"query": prompt}
+    invoke_state["memory_summary"] = _build_memory_summary()
+    if st.session_state.memory_deg_genes:
+        invoke_state["memory_deg_genes"] = st.session_state.memory_deg_genes
+    if st.session_state.memory_deg_analysis:
+        invoke_state["memory_deg_analysis"] = st.session_state.memory_deg_analysis
+    if st.session_state.memory_deg_gene_records:
+        invoke_state["memory_deg_gene_records"] = st.session_state.memory_deg_gene_records
+    if st.session_state.memory_disease_name:
+        invoke_state["memory_disease_name"] = st.session_state.memory_disease_name
+    if st.session_state.memory_openalex_genes:
+        invoke_state["memory_openalex_genes"] = st.session_state.memory_openalex_genes
+    if st.session_state.memory_opentargets_results:
+        invoke_state["memory_opentargets_results"] = st.session_state.memory_opentargets_results
+
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            result = st.session_state.app.invoke({"query": prompt})
+            result = st.session_state.app.invoke(invoke_state)
             answer = result.get("answer", "")
             st.markdown(answer)
 
             st.session_state.messages.append({"role": "assistant", "content": answer})
             st.session_state.last_graph = result.get("graph")
             st.session_state.last_meta = result.get("meta")
+            meta = result.get("meta") or {}
+            if isinstance(meta, dict) and meta.get("analysis_arm") == "srp":
+                st.session_state.memory_deg_genes = meta.get("deg_genes", []) if isinstance(meta.get("deg_genes", []), list) else []
+                st.session_state.memory_deg_analysis = meta.get("deg_analysis", {}) if isinstance(meta.get("deg_analysis", {}), dict) else {}
+                st.session_state.memory_deg_gene_records = meta.get("deg_gene_records", []) if isinstance(meta.get("deg_gene_records", []), list) else []
+            if isinstance(meta, dict) and meta.get("analysis_arm") in {"disease", "memory_rwr"}:
+                disease_name = meta.get("disease_name", "")
+                if isinstance(disease_name, str):
+                    st.session_state.memory_disease_name = disease_name
+                openalex_genes = meta.get("openalex_genes", [])
+                if isinstance(openalex_genes, list):
+                    st.session_state.memory_openalex_genes = openalex_genes
+            if isinstance(meta, dict) and meta.get("opentargets_result"):
+                result = meta.get("opentargets_result")
+                if isinstance(result, dict):
+                    history = list(st.session_state.memory_opentargets_results or [])
+                    history.append(result)
+                    st.session_state.memory_opentargets_results = history[-20:]
 
     st.rerun()
 

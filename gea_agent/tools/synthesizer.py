@@ -47,6 +47,12 @@ def _compact_rwr(rwr_genes: list[tuple[str, float]]) -> list[dict[str, Any]]:
     return [{"g": g, "s": round(float(score), 4)} for g, score in rwr_genes[:10]]
 
 
+def _compact_seed_list(genes: list[str] | None, *, limit: int = 10) -> list[str]:
+    if not isinstance(genes, list):
+        return []
+    return [str(g) for g in genes[:limit] if str(g).strip()]
+
+
 def _compact_enrichr(enrichr: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(enrichr, dict):
         return None
@@ -77,7 +83,10 @@ def _compact_enrichr(enrichr: dict[str, Any] | None) -> dict[str, Any] | None:
 def synthesize_technical_response(
     *,
     user_query: str,
+    analysis_arm: str,
     seed_genes: list[str],
+    srp_ids: list[str] | None,
+    disease_name: str | None,
     deg_analysis: dict[str, Any] | None,
     rwr_genes: list[tuple[str, float]],
     graph: nx.Graph,
@@ -85,16 +94,40 @@ def synthesize_technical_response(
 ) -> str:
     llm = get_llm()
 
-    payload = {
-        "q": _compact_text(user_query, limit=400),
-        "deg": _compact_deg_analysis(deg_analysis),
-        "net": {"n": graph.number_of_nodes(), "e": graph.number_of_edges()},
-        "rwr": _compact_rwr(rwr_genes),
+    arm = (analysis_arm or "disease").strip().lower()
+    payload: dict[str, Any] = {
+        "arm": arm,
+        "q": _compact_text(user_query, limit=350),
+        "seeds": _compact_seed_list(seed_genes),
         "enr": _compact_enrichr(enrichr),
     }
+
+    if arm == "srp":
+        payload["srp"] = _compact_seed_list(srp_ids, limit=10)
+        payload["deg"] = _compact_deg_analysis(deg_analysis)
+    elif arm == "opentargets":
+        payload["ot"] = {
+            "gene": _compact_text((deg_analysis or {}).get("gene") if isinstance(deg_analysis, dict) else "", limit=80),
+            "disease": _compact_text(disease_name, limit=120),
+        }
+    elif arm == "memory_rwr":
+        payload["rwr"] = _compact_rwr(rwr_genes)
+        payload["net"] = {"n": graph.number_of_nodes(), "e": graph.number_of_edges()}
+    else:
+        payload["disease"] = _compact_text(disease_name, limit=120)
+        payload["rwr"] = _compact_rwr(rwr_genes)
+        payload["net"] = {"n": graph.number_of_nodes(), "e": graph.number_of_edges()}
+
     resp = llm.invoke(
         [
-            ("system", "Write a brief bioinformatics summary using the compact JSON provided."),
+            (
+                "system",
+                "Write a brief bioinformatics summary from compact JSON. "
+                "If arm is srp, summarize DEG and pathway results only. "
+                "If arm is opentargets, summarize the gene-disease association result only. "
+                "If arm is memory_rwr, summarize the RWR results on previously stored DEG genes only. "
+                "If arm is disease, summarize disease, literature/RWR, and pathway results.",
+            ),
             ("user", json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
         ]
     )

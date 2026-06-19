@@ -82,18 +82,6 @@ def enrichr_pathways(
     top_n: int = 10,
     species: str = "human",
 ) -> dict[str, Any]:
-    """
-    Enrichment via `gget.enrichr(..., background_list=...)`.
-
-    Returns simple data structures:
-    {
-      "input_genes": [...],
-      "background_genes": [...],
-      "libraries": {
-         "Reactome_2022": [ {"term":..., "adjusted_p_value":..., ...}, ...],
-      }
-    }
-    """
     genes = [g.strip().upper() for g in genes if g and g.strip()]
     genes = list(dict.fromkeys(genes))
 

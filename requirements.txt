@@ -9,3 +9,5 @@ python-dotenv>=1.0
 pytest>=8.0
 gget>=0.28
 pyvis>=0.3.2
+fastapi>=0.115.0
+uvicorn>=0.30.0

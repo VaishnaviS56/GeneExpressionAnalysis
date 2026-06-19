@@ -65,7 +65,6 @@ def fetch_openalex_papers_and_genes(
         }
 
     query = f'{disease} homo sapiens gene'
-    print(query)
     params = {
         "search": query,
         "per-page": top_n,
