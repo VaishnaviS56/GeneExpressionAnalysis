@@ -1,5 +1,7 @@
 # Generated artifacts
 string_full_graph.pkl
+*.csv
+*.log
 *.graphml
 .env
 __pycache__/

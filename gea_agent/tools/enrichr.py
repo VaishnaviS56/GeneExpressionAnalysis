@@ -108,6 +108,13 @@ def enrichr_pathways(
             json=True,
             verbose=False,
         )
+        i=0
+        for pathway in raw:
+            i+=1
+            if i>5:
+                break
+            print(pathway["path_name"])
+            print(pathway.get("overlapping_genes"))
         records = _as_records(raw)
         out[lib] = _normalize_terms(records, top_n=2)
 

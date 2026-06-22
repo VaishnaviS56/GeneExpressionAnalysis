@@ -80,6 +80,76 @@ def _compact_enrichr(enrichr: dict[str, Any] | None) -> dict[str, Any] | None:
     return out or None
 
 
+def _compact_opentargets(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+
+    compact: dict[str, Any] = {
+        "status": result.get("status"),
+        "gene": result.get("gene"),
+        "disease": result.get("disease"),
+        "ensembl_id": result.get("ensembl_id"),
+        "associated": result.get("associated"),
+        "association_score": result.get("association_score"),
+        "message": result.get("message"),
+    }
+
+    top_diseases = result.get("top_diseases")
+    if isinstance(top_diseases, list):
+        compact["top_diseases"] = [
+            {
+                "name": row.get("name"),
+                "score": row.get("score"),
+            }
+            for row in top_diseases[:10]
+            if isinstance(row, dict)
+        ]
+
+    results = result.get("results")
+    if isinstance(results, list):
+        compact["results"] = [
+            {
+                "gene": row.get("gene"),
+                "ensembl_id": row.get("ensembl_id"),
+                "associated": row.get("associated"),
+                "association_score": row.get("association_score"),
+            }
+            for row in results[:10]
+            if isinstance(row, dict)
+        ]
+
+    return {key: value for key, value in compact.items() if value not in (None, "", [])}
+
+
+def _compact_primekg(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    edges = result.get("edges")
+    compact_edges: list[dict[str, Any]] = []
+    if isinstance(edges, list):
+        for edge in edges[:20]:
+            if not isinstance(edge, dict):
+                continue
+            source = edge.get("source") if isinstance(edge.get("source"), dict) else {}
+            target = edge.get("target") if isinstance(edge.get("target"), dict) else {}
+            compact_edges.append(
+                {
+                    "relation": edge.get("display_relation") or edge.get("relation"),
+                    "source": source.get("name"),
+                    "source_type": source.get("type"),
+                    "target": target.get("name"),
+                    "target_type": target.get("type"),
+                }
+            )
+    return {
+        "status": result.get("status"),
+        "count": result.get("count"),
+        "query": result.get("query"),
+        "edges": compact_edges,
+        "message": result.get("message"),
+    }
+
+
 def synthesize_technical_response(
     *,
     user_query: str,
@@ -106,10 +176,9 @@ def synthesize_technical_response(
         payload["srp"] = _compact_seed_list(srp_ids, limit=10)
         payload["deg"] = _compact_deg_analysis(deg_analysis)
     elif arm == "opentargets":
-        payload["ot"] = {
-            "gene": _compact_text((deg_analysis or {}).get("gene") if isinstance(deg_analysis, dict) else "", limit=80),
-            "disease": _compact_text(disease_name, limit=120),
-        }
+        payload["ot"] = _compact_opentargets(deg_analysis)
+    elif arm == "primekg":
+        payload["kg"] = _compact_primekg(deg_analysis)
     elif arm == "memory_rwr":
         payload["rwr"] = _compact_rwr(rwr_genes)
         payload["net"] = {"n": graph.number_of_nodes(), "e": graph.number_of_edges()}
@@ -127,6 +196,7 @@ def synthesize_technical_response(
                 "If any field is missing, ignore it and do not mention it in the response. Compile your sysnthesis with the remaining information"
                 "You don't have to mention the arms or any processing you are doing, just synthesize the information into a concise summary that answers the user's query. "
                 "If arm is srp, summarize DEG and pathway results only. "
+                "If arm is primekg, answer using only the PrimeKG relationships provided. "
                 "If arm is opentargets, summarize the gene-disease association result only. "
                 "If arm is memory_rwr, summarize the RWR results on previously stored DEG genes only. "
                 "If arm is disease, summarize disease, literature/RWR, and pathway results.",

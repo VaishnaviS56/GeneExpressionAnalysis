@@ -9,7 +9,8 @@ load_dotenv(find_dotenv(usecwd=True), override=False)
 
 
 class Settings:
-    groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    # groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    mistral_model: str = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
     temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
     string_required_score: int = int(os.getenv("STRING_REQUIRED_SCORE", "900"))
@@ -64,6 +65,8 @@ class Settings:
     # Cache for full STRING graph (pickle)
     string_graph_cache_path: str = os.getenv("STRING_GRAPH_CACHE_PATH", r"string_full_graph.pkl")
     string_force_rebuild: bool = os.getenv("STRING_FORCE_REBUILD", "0") == "1"
+
+    primekg_csv_path: str = os.getenv("PRIMEKG_CSV_PATH", "kg.csv")
 
 
 SETTINGS = Settings()

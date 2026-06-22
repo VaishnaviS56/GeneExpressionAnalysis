@@ -37,6 +37,7 @@ class AgentState(TypedDict, total=False):
     # disease literature branch
     disease_name: str
     disease_gene: str
+    primekg_result: dict[str, Any]
     opentargets_result: dict[str, Any]
     openalex_papers: list[dict[str, Any]]
     openalex_genes: list[str]

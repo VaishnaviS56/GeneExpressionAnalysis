@@ -5,6 +5,14 @@ from langchain_groq import ChatGroq
 from gea_agent.config import SETTINGS
 
 
-def get_llm() -> ChatGroq:
-    return ChatGroq(model=SETTINGS.groq_model, temperature=SETTINGS.temperature)
+# def get_llm() -> ChatGroq:
+#     return ChatGroq(model=SETTINGS.groq_model, temperature=SETTINGS.temperature)
+
+from langchain_mistralai import ChatMistralAI
+
+def get_llm() -> ChatMistralAI:
+    return ChatMistralAI(
+        model=SETTINGS.mistral_model,
+        temperature=SETTINGS.temperature
+    )
 

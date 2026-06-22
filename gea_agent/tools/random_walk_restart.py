@@ -236,4 +236,5 @@ def top_rwr_genes(
     )
 
     kept = [(g, s) for g, s in candidates if pvals.get(g, 1.0) < alpha]
+    print(kept[:top_k])
     return kept[:top_k]

@@ -17,7 +17,12 @@ from gea_agent.tools.deg_analysis import run_deg_r_analysis
 from gea_agent.tools.enrichr import enrichr_pathways
 from gea_agent.tools.extract_genes import extract_genes_from_text
 from gea_agent.tools.llm import get_llm
-from gea_agent.tools.opentargets import check_gene_disease_association
+from gea_agent.tools.opentargets import (
+    check_gene_disease_association,
+    check_gene_list_disease_associations,
+    find_diseases_for_gene,
+)
+from gea_agent.tools.primekg import query_primekg
 from gea_agent.tools.pyvis_visualizer import build_pyvis_html
 from gea_agent.tools.random_walk_restart import top_rwr_genes
 from gea_agent.tools.string_local_graph import build_weighted_graph_from_string_files
@@ -28,18 +33,22 @@ MAX_AGENT_STEPS = 10
 
 TOOL_USE_INSTRUCTIONS = '''
 deg_analysis: When the user gives SRP ids, run this tool to perform diferentially expressed genes. These genes can then be used downstream. This tool returns the DEGs and their adjusted p-values.
-pathway: Call this tool either directly or in chain when we need to identify pathways for genes. This tool returns the pathways and their adjusted p-values.
+pathway: Primary pathway analysis tool. Call this tool either directly or in chain when we need to identify enriched pathways for genes. This uses Enrichr and returns pathways with adjusted p-values.
 rwr_analysis: Call this tool when user want to identify potential targets from gene set, the genes can be provided by user or can be taken from state of graph depending on the query. This tool will build the STRING graph, run RWR, render PyVis, then synthesize the technical result.
 literature: Call this tool when user wants to identify the disease context, fetch OpenAlex papers, extract genes, then synthesize the technical result. The extracted genes can be saved in state for further downstream analysis for both RWR and pathways.
 identify_disease_from_query: Call this tool when user wants to identify the disease context from the query. This tool will return the disease name which can be used for downstream analysis.
-opentargets_association: Call this tool when the user wants to know what disease a specific gene is associated with. This tool queries OpenTargets and returns the association details.
+primekg_query: First-choice local biomedical relationship lookup for questions answerable from PrimeKG relations. Use this before external sources for drugs, diseases, phenotypes, and genes/proteins, including questions that refer to stored genes in state. Do not use it as the primary pathway enrichment tool.
+opentargets_association: Call this tool when the user asks what diseases are associated with a gene, or whether a specific gene is associated with a specific disease. This tool standardizes genes to Ensembl IDs and queries OpenTargets.
 
 Consider:
 - If the query is general and you can answer directly, do not call any specialist.
 - If any specialist tool is called, the specialist will finish by synthesizing the technical response.
 - You are allowed to chain tools, if you don't have genes to run RWR or pathway analysis, you can first call the literature tool to extract genes from the disease context and then use those genes for downstream analysis.
-- Use opentargets_association for gene-disease association questions.
-- If the user asks for pathways of top upregulated genes, use pathway and prefer stored DEG genes or DEG gene records.
+- Use pathway first for pathway enrichment questions. Enrichr is the primary pathway source.
+- Use primekg_query first for local KG relationship questions involving drugs, diseases, phenotypes, or gene/protein relations. Use PrimeKG for pathways only if the user explicitly asks for PrimeKG/KG pathway relationships rather than enrichment.
+- Use opentargets_association for gene-to-disease and gene-disease association questions only when PrimeKG is not enough or the user asks for OpenTargets/external association evidence, for example "identify the disease associated with PDK4".
+- Use opentargets_association when the user asks whether stored DEG/up-regulated/down-regulated genes are associated with a disease, for example "are the up-regulated genes associated with diabetes". In that case the specialist can use the stored DEG gene records from state.
+- If the user asks for pathways of top up-regulated genes, use pathway and prefer stored DEG gene records. Positive log2FoldChange values are up-regulated; negative log2FoldChange values are down-regulated.
 '''
 
 
@@ -97,6 +106,118 @@ def _genes_from_deg_records(records: Any, *, top_n: int | None = None) -> list[s
     if top_n is not None:
         return genes[: max(0, top_n)]
     return genes
+
+
+def _genes_from_deg_records_by_direction(
+    records: Any,
+    *,
+    direction: str = "all",
+    top_n: int | None = None,
+) -> list[str]:
+    if not isinstance(records, list):
+        return []
+
+    ranked: list[tuple[str, float, float]] = []
+    for row in records:
+        if not isinstance(row, dict):
+            continue
+        gene = str(row.get("gene") or "").strip().upper()
+        if not gene:
+            continue
+        try:
+            log2fc = float(row.get("log2FoldChange"))
+        except Exception:
+            log2fc = 0.0
+        if direction == "up" and log2fc <= 0:
+            continue
+        if direction == "down" and log2fc >= 0:
+            continue
+        ranked.append((gene, log2fc, abs(log2fc)))
+
+    if direction == "down":
+        ranked.sort(key=lambda item: item[1])
+    elif direction == "all":
+        ranked.sort(key=lambda item: item[2], reverse=True)
+    else:
+        ranked.sort(key=lambda item: item[1], reverse=True)
+
+    genes = [gene for gene, _, _ in ranked]
+    if top_n is not None:
+        return genes[: max(0, top_n)]
+    return genes
+
+
+def _deg_direction_from_query(text: str | None) -> str:
+    query = str(text or "").lower()
+    if "down-regulated" in query or "down regulated" in query or "downregulated" in query:
+        return "down"
+    if "up-regulated" in query or "up regulated" in query or "upregulated" in query:
+        return "up"
+    return "all"
+
+
+def _memory_gene_query_requested(text: str | None) -> bool:
+    query = str(text or "").lower()
+    return any(
+        marker in query
+        for marker in (
+            "up-regulated genes",
+            "up regulated genes",
+            "upregulated genes",
+            "down-regulated genes",
+            "down regulated genes",
+            "downregulated genes",
+            "deg genes",
+            "differentially expressed genes",
+        )
+    )
+
+
+def _disease_from_association_query(text: str | None) -> str:
+    query = str(text or "").strip()
+    patterns = (
+        r"\bassociated\s+with\s+(.+?)(?:\?|$)",
+        r"\bassociation\s+with\s+(.+?)(?:\?|$)",
+        r"\blinked\s+to\s+(.+?)(?:\?|$)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, query, re.IGNORECASE)
+        if match:
+            disease = re.sub(r"\b(the|a|an)\b", "", match.group(1), flags=re.IGNORECASE)
+            disease = " ".join(disease.split()).strip(" .,:;")
+            if disease:
+                return disease
+    return ""
+
+
+def _primekg_target_types_from_query(text: str | None) -> list[str]:
+    query = str(text or "").lower()
+    types: list[str] = []
+    explicit_kg = "primekg" in query or "kg" in query or "knowledge graph" in query
+    if "drug" in query or "drugs" in query or "compound" in query or "treatment" in query:
+        types.append("drug")
+    if "disease" in query or "diseases" in query or "diabetes" in query or "cancer" in query:
+        types.append("disease")
+    if "phenotype" in query or "phenotypes" in query or "symptom" in query or "side effect" in query:
+        types.append("effect/phenotype")
+    if explicit_kg and ("pathway" in query or "pathways" in query):
+        types.append("pathway")
+    if "gene" in query or "genes" in query or "protein" in query or "proteins" in query:
+        types.append("gene/protein")
+    return types
+
+
+def _parse_top_n_from_text(text: str | None) -> int | None:
+    if not text:
+        return None
+    match = re.search(r"\btop\s+(\d+)\b", str(text), re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        value = int(match.group(1))
+    except Exception:
+        return None
+    return value if value > 0 else None
 
 
 def _graph_summary(graph: nx.Graph | None) -> dict[str, Any]:
@@ -165,6 +286,39 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
         payload["associated"] = bool(result.get("associated"))
     if result.get("association_score") is not None:
         payload["association_score"] = result.get("association_score")
+    for key in ("gene_set_source", "direction", "top_n"):
+        if result.get(key) not in (None, ""):
+            payload[key] = result.get(key)
+    if isinstance(result.get("top_diseases"), list):
+        payload["top_diseases"] = [
+            {"name": disease.get("name"), "score": disease.get("score")}
+            for disease in result["top_diseases"][:10]
+            if isinstance(disease, dict)
+        ]
+    if isinstance(result.get("results"), list):
+        payload["results"] = [
+            {
+                "gene": row.get("gene"),
+                "ensembl_id": row.get("ensembl_id"),
+                "associated": row.get("associated"),
+                "association_score": row.get("association_score"),
+            }
+            for row in result["results"][:20]
+            if isinstance(row, dict)
+        ]
+    if isinstance(result.get("edges"), list):
+        payload["edges"] = [
+            {
+                "relation": edge.get("display_relation") or edge.get("relation"),
+                "source": (edge.get("source") or {}).get("name") if isinstance(edge.get("source"), dict) else "",
+                "source_type": (edge.get("source") or {}).get("type") if isinstance(edge.get("source"), dict) else "",
+                "target": (edge.get("target") or {}).get("name") if isinstance(edge.get("target"), dict) else "",
+                "target_type": (edge.get("target") or {}).get("type") if isinstance(edge.get("target"), dict) else "",
+            }
+            for edge in result["edges"][:25]
+            if isinstance(edge, dict)
+        ]
+        payload["count"] = result.get("count", len(result.get("edges") or []))
     if isinstance(result.get("deg_analysis"), dict):
         deg_analysis = result["deg_analysis"]
         payload["deg_analysis"] = {
@@ -203,8 +357,12 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
 
 def _infer_analysis_arm(state: AgentState) -> str:
     arm = str(state.get("analysis_arm") or "").strip().lower()
-    if arm in {"general", "srp", "disease", "memory_rwr"}:
+    if arm in {"general", "srp", "disease", "memory_rwr", "primekg", "opentargets"}:
         return arm
+    if state.get("primekg_result"):
+        return "primekg"
+    if state.get("opentargets_result"):
+        return "opentargets"
     if state.get("deg_analysis"):
         return "srp"
     if state.get("openalex_papers") or state.get("openalex_genes") or state.get("rwr_genes") or state.get("disease_name"):
@@ -353,12 +511,43 @@ def _run_identify_disease(state: AgentState, args: dict[str, Any]) -> dict[str, 
 
 
 def _run_opentargets_association(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
+    query = str(state.get("query") or "")
+    top_n = args.get("top_n")
+    if top_n is None:
+        top_n = _parse_top_n_from_text(query)
+    if isinstance(top_n, str) and top_n.isdigit():
+        top_n = int(top_n)
+
+    genes_arg = args.get("genes")
+    genes: list[str] = []
+    if isinstance(genes_arg, list):
+        genes = [str(value).strip().upper() for value in genes_arg if str(value).strip()]
+    if not genes and _memory_gene_query_requested(query):
+        direction = _deg_direction_from_query(query)
+        deg_records = state.get("deg_gene_records") or state.get("memory_deg_gene_records")
+        genes = _genes_from_deg_records_by_direction(
+            deg_records,
+            direction=direction,
+            top_n=top_n if isinstance(top_n, int) and top_n > 0 else None,
+        )
+        if not genes:
+            genes = [
+                str(value).strip().upper()
+                for value in (state.get("deg_genes") or state.get("memory_deg_genes") or state.get("genes") or [])
+                if str(value).strip()
+            ]
+            if isinstance(top_n, int) and top_n > 0:
+                genes = genes[:top_n]
+
     gene = str(
         args.get("gene")
         or state.get("disease_gene")
-        or (state.get("genes") or [""])[0]
+        or (state.get("genes") or state.get("memory_deg_genes") or [""])[0]
         or ""
     )
+    if not gene:
+        extracted = extract_genes_from_text(str(state.get("query") or ""), mode="strict")
+        gene = str((extracted or [""])[0] or "")
     disease = str(
         args.get("disease")
         or args.get("disease_name")
@@ -366,8 +555,101 @@ def _run_opentargets_association(state: AgentState, args: dict[str, Any]) -> dic
         or state.get("memory_disease_name")
         or ""
     )
-    result = check_gene_disease_association(gene, disease)
+    if not disease and _memory_gene_query_requested(query):
+        disease = _disease_from_association_query(query)
+        if not disease:
+            disease_result = identify_disease_from_query(query)
+            disease = str(disease_result.get("disease") or "").strip()
+    if genes and not disease:
+        if len(genes) == 1:
+            result = find_diseases_for_gene(genes[0])
+        else:
+            results = [find_diseases_for_gene(value) for value in genes]
+            result = {
+                "status": "ok",
+                "genes": genes,
+                "associated": any(item.get("associated") for item in results if isinstance(item, dict)),
+                "results": results,
+                "message": f"Retrieved top OpenTargets disease associations for {len(results)} genes.",
+            }
+    elif genes:
+        result = check_gene_list_disease_associations(genes, disease)
+        result["gene_set_source"] = "stored_deg_genes" if _memory_gene_query_requested(query) else "tool_args"
+        if isinstance(top_n, int) and top_n > 0:
+            result["top_n"] = top_n
+        result["direction"] = _deg_direction_from_query(query)
+    elif not disease:
+        result = find_diseases_for_gene(gene)
+    else:
+        result = check_gene_disease_association(gene, disease)
     result["analysis_arm"] = "opentargets"
+    return result
+
+
+def _run_primekg_query(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
+    query = str(state.get("query") or "")
+    top_n = args.get("top_n")
+    if top_n is None:
+        top_n = _parse_top_n_from_text(query)
+    if isinstance(top_n, str) and top_n.isdigit():
+        top_n = int(top_n)
+
+    source_terms = args.get("source_terms") or args.get("genes") or args.get("entities")
+    if isinstance(source_terms, str):
+        source_terms = [source_terms]
+    if not isinstance(source_terms, list):
+        source_terms = []
+
+    if not source_terms and args.get("gene"):
+        source_terms = [str(args.get("gene"))]
+
+    if not source_terms and _memory_gene_query_requested(query):
+        source_terms = _genes_from_deg_records_by_direction(
+            state.get("deg_gene_records") or state.get("memory_deg_gene_records"),
+            direction=_deg_direction_from_query(query),
+            top_n=top_n if isinstance(top_n, int) and top_n > 0 else 50,
+        )
+        if not source_terms:
+            source_terms = list(state.get("deg_genes") or state.get("memory_deg_genes") or state.get("genes") or [])
+            if isinstance(top_n, int) and top_n > 0:
+                source_terms = source_terms[:top_n]
+
+    if not source_terms:
+        source_terms = extract_genes_from_text(query, mode="strict")
+
+    target_terms = args.get("target_terms")
+    if isinstance(target_terms, str):
+        target_terms = [target_terms]
+    if not isinstance(target_terms, list):
+        target_terms = []
+
+    disease = str(args.get("disease") or args.get("disease_name") or "").strip()
+    if not disease and ("associated with" in query.lower() or "linked to" in query.lower()):
+        disease = _disease_from_association_query(query)
+    if disease and source_terms and not target_terms:
+        target_terms = [disease]
+    elif disease and not source_terms:
+        source_terms = [disease]
+
+    source_types = args.get("source_types")
+    target_types = args.get("target_types")
+    if not isinstance(source_types, list) or not source_types:
+        source_types = ["disease"] if disease and source_terms == [disease] else (["gene/protein"] if source_terms else [])
+    if not isinstance(target_types, list) or not target_types:
+        target_types = _primekg_target_types_from_query(query)
+    relation_terms = args.get("relation_terms")
+    result = query_primekg(
+        source_terms=[str(value).strip().upper() for value in source_terms if str(value).strip()],
+        target_terms=[str(value).strip() for value in target_terms if str(value).strip()],
+        source_types=source_types if isinstance(source_types, list) else [],
+        target_types=target_types if isinstance(target_types, list) else [],
+        relation_terms=relation_terms if isinstance(relation_terms, list) else [],
+        limit=int(args.get("limit") or 50),
+    )
+    result["analysis_arm"] = "primekg"
+    if _memory_gene_query_requested(query):
+        result["gene_set_source"] = "stored_deg_genes"
+        result["direction"] = _deg_direction_from_query(query)
     return result
 
 
@@ -419,6 +701,14 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
                     "description": row.get("description"),
                 }
             )
+    top_n = args.get("top_n")
+    if top_n is None:
+        top_n = _parse_top_n_from_text(str(args.get("text") or state.get("query") or ""))
+    if isinstance(top_n, str) and top_n.isdigit():
+        top_n = int(top_n)
+    if isinstance(top_n, int) and top_n > 0:
+        deg_genes = deg_genes[:top_n]
+        deg_gene_records = deg_gene_records[:top_n]
     return {
         "analysis_arm": "srp",
         "srp_ids": srp_ids,
@@ -464,12 +754,19 @@ def _run_top_rwr(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
             seed_genes = _genes_from_deg_records(state.get("memory_deg_gene_records"), top_n=20) or list(state.get("memory_deg_genes") or state.get("genes") or [])
         else:
             seed_genes = _genes_from_deg_records(state.get("deg_gene_records") or state.get("memory_deg_gene_records"), top_n=20) or list(state.get("genes") or [])
+    top_n = args.get("top_n")
+    if top_n is None:
+        top_n = _parse_top_n_from_text(str(args.get("text") or state.get("query") or ""))
+    if isinstance(top_n, str) and top_n.isdigit():
+        top_n = int(top_n)
     seed_genes = [str(value).strip().upper() for value in seed_genes if str(value).strip()]
+    if isinstance(top_n, int) and top_n > 0:
+        seed_genes = seed_genes[:top_n]
 
     rwr = top_rwr_genes(
         graph,
         seed_genes,
-        top_k=int(args.get("top_k") or 30),
+        top_k=int(top_n or args.get("top_k") or 30),
         restart_prob=float(args.get("restart_prob") or 0.5),
         exclude=args.get("exclude"),
         exclude_hubs=bool(args.get("exclude_hubs", True)),
@@ -483,13 +780,30 @@ def _run_top_rwr(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
 
 def _run_enrichr(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     analysis_arm = str(args.get("analysis_arm") or state.get("analysis_arm") or "").strip().lower()
+    query = str(args.get("text") or state.get("query") or "")
+    direction = _deg_direction_from_query(query)
     genes = args.get("genes")
+    top_n = args.get("top_n")
+    if top_n is None:
+        top_n = _parse_top_n_from_text(query)
+    if isinstance(top_n, str) and top_n.isdigit():
+        top_n = int(top_n)
+    if isinstance(genes, list) and isinstance(top_n, int) and top_n > 0:
+        genes = genes[:top_n]
     if not isinstance(genes, list) or not genes:
         if analysis_arm == "srp":
-            genes = _genes_from_deg_records(state.get("deg_gene_records") or state.get("memory_deg_gene_records"), top_n=50) or list(state.get("deg_genes") or [])
+            genes = _genes_from_deg_records_by_direction(
+                state.get("deg_gene_records") or state.get("memory_deg_gene_records"),
+                direction=direction,
+                top_n=top_n,
+            ) or list(state.get("deg_genes") or [])
         else:
             genes = _merge_unique(
-                _genes_from_deg_records(state.get("memory_deg_gene_records"), top_n=50),
+                _genes_from_deg_records_by_direction(
+                    state.get("memory_deg_gene_records"),
+                    direction=direction,
+                    top_n=top_n,
+                ),
                 state.get("genes"),
                 [gene for gene, _ in (state.get("rwr_genes") or [])],
             )
@@ -499,9 +813,11 @@ def _run_enrichr(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         background = list(state.get("deg_genes") or genes)
 
     return {
+        "direction": direction,
+        "gene_set_source": "stored_deg_genes" if _memory_gene_query_requested(query) or state.get("deg_gene_records") or state.get("memory_deg_gene_records") else "tool_args",
         "enrichr": enrichr_pathways(
             genes,
-            top_n=int(args.get("top_n") or 10),
+            top_n=int(top_n or args.get("top_n") or 10),
             background_genes=background,
         )
     }
@@ -528,7 +844,7 @@ def _run_synthesize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         seed_genes=list(args.get("seed_genes") or state.get("genes") or []),
         srp_ids=list(args.get("srp_ids") or state.get("srp_ids") or []),
         disease_name=str(args.get("disease_name") or state.get("disease_name") or ""),
-        deg_analysis=_ensure_dict(state.get("deg_analysis")),
+        deg_analysis=_ensure_dict(state.get("opentargets_result") or state.get("primekg_result") or state.get("deg_analysis")),
         rwr_genes=list(state.get("rwr_genes") or []),
         graph=graph if isinstance(graph, nx.Graph) else nx.Graph(),
         enrichr=_ensure_dict(state.get("enrichr")),
@@ -544,6 +860,39 @@ def _specialist_history_update(state: AgentState, tool_name: str, args: dict[str
     history = list(state.get("tool_history") or [])
     history.append({"tool": tool_name, "args": args, "result": _serialize_tool_result(result)})
     return {"tool_history": history}
+
+
+def _tool_observations(state: AgentState, call: dict[str, Any] | None, tool_name: str, result: dict[str, Any]) -> list[ToolMessage]:
+    ai_message = _latest_ai_message(list(state.get("messages") or []))
+    tool_calls = list(getattr(ai_message, "tool_calls", []) or [])
+    if not tool_calls and call:
+        tool_calls = [call]
+
+    selected_id = str(call.get("id")) if call and call.get("id") else ""
+    messages: list[ToolMessage] = []
+    for tool_call in tool_calls:
+        call_id = str(tool_call.get("id") or "")
+        if not call_id:
+            continue
+        name = str(tool_call.get("name") or tool_name)
+        if selected_id and call_id == selected_id:
+            payload = _serialize_tool_result(result)
+        else:
+            payload = {
+                "status": "deferred",
+                "message": (
+                    "This tool call was not executed in this step because the agent executes "
+                    "one specialist at a time. Call it again if it is still needed."
+                ),
+            }
+        messages.append(
+            ToolMessage(
+                content=json.dumps(payload, ensure_ascii=False, default=str),
+                name=name,
+                tool_call_id=call_id,
+            )
+        )
+    return messages
 
 
 def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
@@ -562,13 +911,13 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             update = _specialist_history_update(state, "run_deg_r_analysis", args, result)
             update = {**update, **result}
             state = {**state, **update}
-            return {**state, **result, "analysis_arm": "srp"}
+            return {**state, **result, "analysis_arm": "srp", "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "pathway":
             result = _run_enrichr(state, args)
             update = _specialist_history_update(state, "enrichr_pathways", args, result)
             update = {**update, **result}
-            return {**state, **update}
+            return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "rwr_analysis":
             build_result = _run_build_string_graph(state, args)
@@ -585,7 +934,7 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             update = _specialist_history_update(state, "build_pyvis_html", args, pyvis_result)
             update = {**update, **pyvis_result}
             state = {**state, **update}
-            return {**state, **rwr_result}
+            return {**state, **rwr_result, "messages": _tool_observations(state, call, tool_name, rwr_result)}
 
         if tool_name == "literature":
             disease_result = _run_identify_disease(state, args)
@@ -602,13 +951,20 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             update = _specialist_history_update(state, "extract_genes_from_text", args, gene_result)
             update = {**update, **gene_result}
             state = {**state, **update}
-            return {**state, **openalex_result}
+            return {**state, **openalex_result, "messages": _tool_observations(state, call, tool_name, openalex_result)}
 
         if tool_name == "identify_disease_from_query":
             result = _run_identify_disease(state, args)
             update = _specialist_history_update(state, "identify_disease_from_query", args, result)
             update = {**update, **result}
-            return {**state, **update}
+            return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
+
+        if tool_name == "primekg_query":
+            result = _run_primekg_query(state, args)
+            update = _specialist_history_update(state, "primekg_query", args, result)
+            update = {**update, **result}
+            update["primekg_result"] = result
+            return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "opentargets_association":
             result = _run_opentargets_association(state, args)
@@ -621,7 +977,7 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
                 history = list(state.get("memory_opentargets_results") or [])
                 history.append(result)
                 update["memory_opentargets_results"] = history
-            return {**state, **update}
+            return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         return state
 
@@ -637,6 +993,8 @@ def _finalize(state: AgentState) -> AgentState:
 
     if state.get("tool_history"):
         analysis_arm = _infer_analysis_arm(state)
+        if state.get("primekg_result"):
+            analysis_arm = "primekg"
         if state.get("opentargets_result"):
             analysis_arm = "opentargets"
         answer = synthesize_technical_response(
@@ -645,7 +1003,7 @@ def _finalize(state: AgentState) -> AgentState:
             seed_genes=list(state.get("genes") or []),
             srp_ids=list(state.get("srp_ids") or []),
             disease_name=str(state.get("disease_name") or ""),
-            deg_analysis=_ensure_dict(state.get("deg_analysis")),
+            deg_analysis=_ensure_dict(state.get("opentargets_result") or state.get("primekg_result") or state.get("deg_analysis")),
             rwr_genes=list(state.get("rwr_genes") or []),
             graph=state.get("graph") if isinstance(state.get("graph"), nx.Graph) else nx.Graph(),
             enrichr=_ensure_dict(state.get("enrichr")),
@@ -668,6 +1026,7 @@ def _finalize(state: AgentState) -> AgentState:
         "disease_gene": str(state.get("disease_gene") or ""),
         "openalex_papers": list(state.get("openalex_papers") or []),
         "openalex_genes": list(state.get("openalex_genes") or []),
+        "primekg_result": _ensure_dict(state.get("primekg_result")),
         "opentargets_result": _ensure_dict(state.get("opentargets_result")),
         "deg_analysis": _ensure_dict(state.get("deg_analysis")),
         "deg_genes": list(state.get("deg_genes") or []),
@@ -716,6 +1075,14 @@ def build_app():
     return graph.compile()
 
 
+def _tool_arg_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
 TOOL_SCHEMAS = [
     tool(
         "extract_genes_from_text",
@@ -762,7 +1129,7 @@ TOOL_SCHEMAS = [
     )(lambda seed_genes, top_k=30, restart_prob=0.5: {"rwr_genes": seed_genes, "top_k": top_k, "restart_prob": restart_prob}),
     tool(
         "pathway",
-        description="Run pathway enrichment on the current gene set.",
+        description="Primary pathway enrichment tool using Enrichr. Use for pathway questions, including stored up-regulated genes with positive log2FoldChange and down-regulated genes with negative log2FoldChange.",
         return_direct=False,
     )(lambda genes, top_n=10, background_genes=None: enrichr_pathways(list(genes or []), top_n=int(top_n), background_genes=list(background_genes or []))),
     tool(
@@ -771,10 +1138,26 @@ TOOL_SCHEMAS = [
         return_direct=False,
     )(lambda select_top_degree=300, output_path="pyvis_network.html": {"select_top_degree": select_top_degree, "output_path": output_path}),
     tool(
-        "opentargets_association",
-        description="Check whether a gene is associated with a disease using the OpenTargets platform.",
+        "primekg_query",
+        description="First-choice local PrimeKG lookup for relationships among drugs, diseases, phenotypes, and genes/proteins. Do not use for pathway enrichment unless the user explicitly asks for PrimeKG/KG pathway relations.",
         return_direct=False,
-    )(lambda gene=None, disease=None, disease_name=None: {"gene": gene or "", "disease": disease or disease_name or ""}),
+    )(lambda source_terms=None, target_terms=None, source_types=None, target_types=None, relation_terms=None, genes=None, gene=None, disease=None, disease_name=None, top_n=None, limit=50: {
+        "source_terms": _tool_arg_list(source_terms),
+        "target_terms": _tool_arg_list(target_terms),
+        "source_types": _tool_arg_list(source_types),
+        "target_types": _tool_arg_list(target_types),
+        "relation_terms": _tool_arg_list(relation_terms),
+        "genes": _tool_arg_list(genes),
+        "gene": gene or "",
+        "disease": disease or disease_name or "",
+        "top_n": top_n,
+        "limit": limit,
+    }),
+    tool(
+        "opentargets_association",
+        description="Find diseases associated with a gene, or check whether one gene, a gene list, or stored DEG/up-regulated/down-regulated genes are associated with a named disease, using MyGene-standardized Ensembl IDs and OpenTargets.",
+        return_direct=False,
+    )(lambda gene=None, genes=None, disease=None, disease_name=None: {"gene": gene or "", "genes": list(genes or []), "disease": disease or disease_name or ""}),
     tool(
         "synthesize_technical_response",
         description="Write the final technical summary from the available analysis state.",
@@ -799,5 +1182,6 @@ TOOL_EXECUTORS: dict[str, Callable[[AgentState, dict[str, Any]], dict[str, Any]]
     "rwr_analysis": lambda state, args: {},
     "literature": lambda state, args: {},
     "identify_disease_from_query": lambda state, args: {},
+    "primekg_query": lambda state, args: {},
     "opentargets_association": lambda state, args: {},
 }
