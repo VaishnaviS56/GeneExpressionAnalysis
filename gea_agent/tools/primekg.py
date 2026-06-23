@@ -1,176 +1,260 @@
 from __future__ import annotations
 
-import csv
-import os
-import re
 from typing import Any
 
+from langchain_neo4j import Neo4jGraph
+from langchain_neo4j import GraphCypherQAChain
+
+from gea_agent.tools.llm import get_llm
 from gea_agent.config import SETTINGS
 
 
-FOCUSED_TYPES = {"drug", "disease", "effect/phenotype", "gene/protein", "pathway"}
-TYPE_ALIASES = {
-    "gene": "gene/protein",
-    "genes": "gene/protein",
-    "protein": "gene/protein",
-    "proteins": "gene/protein",
-    "phenotype": "effect/phenotype",
-    "phenotypes": "effect/phenotype",
-    "effect": "effect/phenotype",
-    "effects": "effect/phenotype",
-    "drug": "drug",
-    "drugs": "drug",
-    "disease": "disease",
-    "diseases": "disease",
-    "pathway": "pathway",
-    "pathways": "pathway",
-}
+from langchain_core.prompts import PromptTemplate
 
 
-def _norm(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+PRIMEKG_CYPHER_PROMPT = PromptTemplate(
+    input_variables=["schema", "question"],
+    template="""
+You are an expert biomedical graph database engineer.
+
+You are generating Cypher queries for PrimeKG.
+
+PrimeKG contains biomedical entities such as:
+
+Entity Types:
+- Gene
+- Drug
+- Disease
+- Pathway
+- Phenotype
+- Anatomy
+- BiologicalProcess
+- MolecularFunction
+- CellularComponent
+- Exposure
+
+The graph schema is:
+
+{schema}
+
+Rules:
+
+1. Generate ONLY Cypher.
+2. Do NOT explain your reasoning.
+3. Do NOT return markdown.
+4. Use case-insensitive matching when searching names.
+5. Use CONTAINS instead of exact equality whenever possible.
+6. Return meaningful names, not internal IDs.
+7. Limit results to 25 unless the user explicitly asks for more.
+8. Prefer shortest graph traversals.
+9. Never invent labels or relationship types that are not present in the schema.
+10. If the user asks for genes, return gene/protein entities.
+11. If the user asks for pathways, return pathway entities.
+12. If the user asks for drugs, return drug entities.
+13. If the user asks for diseases, return disease entities.
+
+Examples
+
+Question:
+What genes are associated with type 2 diabetes?
+
+Cypher:
+MATCH (d:Entity)-[r]-(g:Entity)
+WHERE d.type = "disease"
+AND g.type = "gene/protein"
+WHERE toLower(d.name) CONTAINS "diabetes"
+RETURN DISTINCT g.name
+LIMIT 25
+
+Question:
+What drugs target JAK2?
+
+Cypher:
+MATCH (d:Entity)-[r]-(g:Entity)
+WHERE d.type = "disease"
+AND g.type = "gene/protein"
+WHERE toLower(g.name) CONTAINS "jak2"
+RETURN DISTINCT drug.name
+LIMIT 25
+
+Question:
+What pathways involve TP53?
+
+Cypher:
+MATCH (d:Entity)-[r]-(g:Entity)
+WHERE d.type = "disease"
+AND g.type = "gene/protein"
+WHERE toLower(g.name) CONTAINS "tp53"
+RETURN DISTINCT p.name
+LIMIT 25
+
+Question:
+{question}
+
+Cypher:
+"""
+)
+
+PRIMEKG_QA_PROMPT = PromptTemplate(
+    input_variables=["context", "question"],
+    template="""
+You are a biomedical research assistant.
+
+You are given query results retrieved from PrimeKG.
+
+Use only the provided data.
+
+Context:
+{context}
+
+Question:
+{question}
+
+Instructions:
+
+- Answer clearly and concisely.
+- Mention genes, drugs, diseases and pathways explicitly.
+- Do not invent information.
+- If no results were found, state that.
+- If multiple entities are returned, summarize the major findings.
+
+Answer:
+"""
+)
+
+_graph = None
+_chain = None
 
 
-def _clean_list(values: Any) -> list[str]:
-    if isinstance(values, str):
-        values = [values]
-    if not isinstance(values, list):
-        return []
-    cleaned: list[str] = []
-    for value in values:
-        text = str(value or "").strip()
-        if text and text not in cleaned:
-            cleaned.append(text)
-    return cleaned
+def _get_graph() -> Neo4jGraph:
+    global _graph
+
+    if _graph is None:
+        _graph = Neo4jGraph(
+            url=SETTINGS.neo4j_uri,
+            username=SETTINGS.neo4j_username,
+            password=SETTINGS.neo4j_password,
+        )
+
+    return _graph
 
 
-def _clean_types(values: Any) -> set[str]:
-    types = set()
-    for value in _clean_list(values):
-        mapped = TYPE_ALIASES.get(_norm(value), value)
-        if mapped in FOCUSED_TYPES:
-            types.add(mapped)
-    return types
+def _get_chain() -> GraphCypherQAChain:
+    global _chain
 
+    if _chain is None:
+        llm = get_llm()
 
-def _node(row: dict[str, str], prefix: str) -> dict[str, str]:
-    return {
-        "id": row.get(f"{prefix}_id", ""),
-        "type": row.get(f"{prefix}_type", ""),
-        "name": row.get(f"{prefix}_name", ""),
-        "source": row.get(f"{prefix}_source", ""),
-    }
+        _chain = GraphCypherQAChain.from_llm(
+            llm=llm,
+            graph=_get_graph(),
+            cypher_prompt=PRIMEKG_CYPHER_PROMPT,
+            qa_prompt=PRIMEKG_QA_PROMPT,
+            validate_cypher=True,
+            verbose=True,
+            return_intermediate_steps=True,
+            allow_dangerous_requests=True,
+        )
 
+    return _chain
 
-def _edge(row: dict[str, str]) -> dict[str, Any]:
-    return {
-        "relation": row.get("relation", ""),
-        "display_relation": row.get("display_relation", ""),
-        "source": _node(row, "x"),
-        "target": _node(row, "y"),
-    }
+def refresh_primekg_schema() -> str:
+    global _graph
 
+    if _graph is None:
+        _graph = _get_graph()
 
-def _edge_oriented(row: dict[str, str], *, reverse: bool = False) -> dict[str, Any]:
-    if not reverse:
-        return _edge(row)
-    return {
-        "relation": row.get("relation", ""),
-        "display_relation": row.get("display_relation", ""),
-        "source": _node(row, "y"),
-        "target": _node(row, "x"),
-    }
+    _graph.refresh_schema()
+    return _graph.schema
 
-
-def _matches_term(name: str, node_id: str, terms: list[str], normalized_terms: set[str]) -> bool:
-    if not terms:
-        return True
-    name_norm = _norm(name)
-    id_norm = _norm(node_id)
-    return name_norm in normalized_terms or id_norm in normalized_terms
-
-
-def _matches_text(value: str, filters: list[str]) -> bool:
-    if not filters:
-        return True
-    normalized = _norm(value)
-    return any(_norm(item) in normalized for item in filters)
-
-
-def query_primekg(
-    *,
-    source_terms: list[str] | None = None,
-    target_terms: list[str] | None = None,
-    source_types: list[str] | None = None,
-    target_types: list[str] | None = None,
-    relation_terms: list[str] | None = None,
-    limit: int = 50,
-    kg_path: str | None = None,
-) -> dict[str, Any]:
-    path = kg_path or SETTINGS.primekg_csv_path
-    if not os.path.exists(path):
-        return {
-            "status": "missing_file",
-            "edges": [],
-            "message": f"PrimeKG CSV was not found at {path}.",
-        }
-
-    source_terms_clean = _clean_list(source_terms)
-    target_terms_clean = _clean_list(target_terms)
-    source_norm = {_norm(value) for value in source_terms_clean}
-    target_norm = {_norm(value) for value in target_terms_clean}
-    source_type_set = _clean_types(source_types)
-    target_type_set = _clean_types(target_types)
-    relation_filters = _clean_list(relation_terms)
-    limit = max(1, min(int(limit or 50), 200))
-
-    edges: list[dict[str, Any]] = []
-    scanned = 0
-    focused_seen = 0
-    with open(path, newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            scanned += 1
-            x_type = row.get("x_type", "")
-            y_type = row.get("y_type", "")
-            if x_type not in FOCUSED_TYPES or y_type not in FOCUSED_TYPES:
-                continue
-            focused_seen += 1
-            if not _matches_text(row.get("display_relation", "") or row.get("relation", ""), relation_filters):
-                continue
-
-            forward = (
-                (not source_type_set or x_type in source_type_set)
-                and (not target_type_set or y_type in target_type_set)
-                and _matches_term(row.get("x_name", ""), row.get("x_id", ""), source_terms_clean, source_norm)
-                and _matches_term(row.get("y_name", ""), row.get("y_id", ""), target_terms_clean, target_norm)
-            )
-            reverse = (
-                (not source_type_set or y_type in source_type_set)
-                and (not target_type_set or x_type in target_type_set)
-                and _matches_term(row.get("y_name", ""), row.get("y_id", ""), source_terms_clean, source_norm)
-                and _matches_term(row.get("x_name", ""), row.get("x_id", ""), target_terms_clean, target_norm)
-            )
-            if not forward and not reverse:
-                continue
-
-            edges.append(_edge_oriented(row, reverse=bool(reverse and not forward)))
-            if len(edges) >= limit:
-                break
+def get_primekg_schema() -> dict[str, Any]:
+    graph = _get_graph()
+    graph.refresh_schema()
 
     return {
         "status": "ok",
-        "edges": edges,
-        "count": len(edges),
-        "scanned_rows": scanned,
-        "focused_rows_seen": focused_seen,
-        "query": {
-            "source_terms": source_terms_clean,
-            "target_terms": target_terms_clean,
-            "source_types": sorted(source_type_set),
-            "target_types": sorted(target_type_set),
-            "relation_terms": relation_filters,
-            "limit": limit,
-        },
-        "message": f"Found {len(edges)} PrimeKG relationships.",
+        "schema": graph.schema
     }
+
+def test_primekg_connection() -> dict[str, Any]:
+    try:
+        graph = _get_graph()
+
+        result = graph.query(
+            "RETURN 'connected' AS status"
+        )
+
+        return {
+            "status": "ok",
+            "result": result,
+        }
+
+    except Exception as exc:
+        return {
+            "status": "error",
+            "message": str(exc),
+        }
+
+def query_primekg(question: str) -> dict[str, Any]:
+    """
+    Description:
+        Query PrimeKG using natural language.
+
+        The LLM receives the Neo4j schema,
+        generates a Cypher query,
+        executes it against PrimeKG,
+        and returns both the result and generated Cypher.
+
+    Args:
+        question:
+            Natural language biomedical question.
+
+    Output:
+        {
+            "status": "ok",
+            "question": "...",
+            "answer": "...",
+            "cypher": "...",
+            "raw_result": [...]
+        }
+    """
+
+    try:
+
+        result = _get_chain().invoke(
+            {"query": question}
+        )
+
+        cypher = ""
+
+        steps = result.get(
+            "intermediate_steps",
+            []
+        )
+
+        for step in steps:
+            if isinstance(step, dict):
+                cypher = (
+                    step.get("query")
+                    or step.get("cypher")
+                    or cypher
+                )
+        print("Cypher: ", cypher)
+        print("Raw Result: ", result.get("result"))
+        return {
+            "status": "ok",
+            "question": question,
+            "answer": result.get("result", ""),
+            "cypher": cypher,
+            "raw_result": result,
+        }
+
+    except Exception as exc:
+
+        return {
+            "status": "error",
+            "question": question,
+            "answer": "",
+            "cypher": "",
+            "message": str(exc),
+        }

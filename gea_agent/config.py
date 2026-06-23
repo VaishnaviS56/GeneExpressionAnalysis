@@ -15,6 +15,10 @@ class Settings:
 
     string_required_score: int = int(os.getenv("STRING_REQUIRED_SCORE", "900"))
 
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_username: str = "neo4j"
+    neo4j_password: str = "primekg123"
+
     # deg_r_script_path: str = os.getenv(
     #     "DEG_R_SCRIPT_PATH",
     #     r"C:\Vaishanvi\TCS\GEA\dee2_data.R",

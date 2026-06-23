@@ -22,11 +22,11 @@ from gea_agent.tools.opentargets import (
     check_gene_list_disease_associations,
     find_diseases_for_gene,
 )
-from gea_agent.tools.primekg import query_primekg
 from gea_agent.tools.pyvis_visualizer import build_pyvis_html
 from gea_agent.tools.random_walk_restart import top_rwr_genes
 from gea_agent.tools.string_local_graph import build_weighted_graph_from_string_files
 from gea_agent.tools.synthesizer import synthesize_technical_response
+from gea_agent.tools.primekg import query_primekg
 
 
 MAX_AGENT_STEPS = 10
@@ -37,7 +37,20 @@ pathway: Primary pathway analysis tool. Call this tool either directly or in cha
 rwr_analysis: Call this tool when user want to identify potential targets from gene set, the genes can be provided by user or can be taken from state of graph depending on the query. This tool will build the STRING graph, run RWR, render PyVis, then synthesize the technical result.
 literature: Call this tool when user wants to identify the disease context, fetch OpenAlex papers, extract genes, then synthesize the technical result. The extracted genes can be saved in state for further downstream analysis for both RWR and pathways.
 identify_disease_from_query: Call this tool when user wants to identify the disease context from the query. This tool will return the disease name which can be used for downstream analysis.
-primekg_query: First-choice local biomedical relationship lookup for questions answerable from PrimeKG relations. Use this before external sources for drugs, diseases, phenotypes, and genes/proteins, including questions that refer to stored genes in state. Do not use it as the primary pathway enrichment tool.
+primekg_query:
+Query the PrimeKG knowledge graph using natural language.
+
+Examples:
+- What genes are associated with Alzheimer's disease?
+- What drugs target JAK2?
+- What pathways involve TP53?
+- What diseases are linked to STAT3?
+
+This tool automatically:
+1. Reads the Neo4j schema.
+2. Generates Cypher.
+3. Executes Cypher.
+4. Returns a summarized answer.
 opentargets_association: Call this tool when the user asks what diseases are associated with a gene, or whether a specific gene is associated with a specific disease. This tool standardizes genes to Ensembl IDs and queries OpenTargets.
 
 Consider:
@@ -349,6 +362,11 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
                 for lib, terms in libs.items()
                 if isinstance(terms, list)
             }
+    if result.get("cypher"):
+        payload["cypher"] = result["cypher"]
+
+    if result.get("answer"):
+        payload["answer"] = result["answer"]
     if result.get("pyvis_html_path"):
         payload["pyvis_html_path"] = result["pyvis_html_path"]
 
@@ -586,72 +604,83 @@ def _run_opentargets_association(state: AgentState, args: dict[str, Any]) -> dic
     return result
 
 
-def _run_primekg_query(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
-    query = str(state.get("query") or "")
-    top_n = args.get("top_n")
-    if top_n is None:
-        top_n = _parse_top_n_from_text(query)
-    if isinstance(top_n, str) and top_n.isdigit():
-        top_n = int(top_n)
+# def _run_primekg_query(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
+#     query = str(state.get("query") or "")
+#     top_n = args.get("top_n")
+#     if top_n is None:
+#         top_n = _parse_top_n_from_text(query)
+#     if isinstance(top_n, str) and top_n.isdigit():
+#         top_n = int(top_n)
 
-    source_terms = args.get("source_terms") or args.get("genes") or args.get("entities")
-    if isinstance(source_terms, str):
-        source_terms = [source_terms]
-    if not isinstance(source_terms, list):
-        source_terms = []
+#     source_terms = args.get("source_terms") or args.get("genes") or args.get("entities")
+#     if isinstance(source_terms, str):
+#         source_terms = [source_terms]
+#     if not isinstance(source_terms, list):
+#         source_terms = []
 
-    if not source_terms and args.get("gene"):
-        source_terms = [str(args.get("gene"))]
+#     if not source_terms and args.get("gene"):
+#         source_terms = [str(args.get("gene"))]
 
-    if not source_terms and _memory_gene_query_requested(query):
-        source_terms = _genes_from_deg_records_by_direction(
-            state.get("deg_gene_records") or state.get("memory_deg_gene_records"),
-            direction=_deg_direction_from_query(query),
-            top_n=top_n if isinstance(top_n, int) and top_n > 0 else 50,
-        )
-        if not source_terms:
-            source_terms = list(state.get("deg_genes") or state.get("memory_deg_genes") or state.get("genes") or [])
-            if isinstance(top_n, int) and top_n > 0:
-                source_terms = source_terms[:top_n]
+#     if not source_terms and _memory_gene_query_requested(query):
+#         source_terms = _genes_from_deg_records_by_direction(
+#             state.get("deg_gene_records") or state.get("memory_deg_gene_records"),
+#             direction=_deg_direction_from_query(query),
+#             top_n=top_n if isinstance(top_n, int) and top_n > 0 else 50,
+#         )
+#         if not source_terms:
+#             source_terms = list(state.get("deg_genes") or state.get("memory_deg_genes") or state.get("genes") or [])
+#             if isinstance(top_n, int) and top_n > 0:
+#                 source_terms = source_terms[:top_n]
 
-    if not source_terms:
-        source_terms = extract_genes_from_text(query, mode="strict")
+#     if not source_terms:
+#         source_terms = extract_genes_from_text(query, mode="strict")
 
-    target_terms = args.get("target_terms")
-    if isinstance(target_terms, str):
-        target_terms = [target_terms]
-    if not isinstance(target_terms, list):
-        target_terms = []
+#     target_terms = args.get("target_terms")
+#     if isinstance(target_terms, str):
+#         target_terms = [target_terms]
+#     if not isinstance(target_terms, list):
+#         target_terms = []
 
-    disease = str(args.get("disease") or args.get("disease_name") or "").strip()
-    if not disease and ("associated with" in query.lower() or "linked to" in query.lower()):
-        disease = _disease_from_association_query(query)
-    if disease and source_terms and not target_terms:
-        target_terms = [disease]
-    elif disease and not source_terms:
-        source_terms = [disease]
+#     disease = str(args.get("disease") or args.get("disease_name") or "").strip()
+#     if not disease and ("associated with" in query.lower() or "linked to" in query.lower()):
+#         disease = _disease_from_association_query(query)
+#     if disease and source_terms and not target_terms:
+#         target_terms = [disease]
+#     elif disease and not source_terms:
+#         source_terms = [disease]
 
-    source_types = args.get("source_types")
-    target_types = args.get("target_types")
-    if not isinstance(source_types, list) or not source_types:
-        source_types = ["disease"] if disease and source_terms == [disease] else (["gene/protein"] if source_terms else [])
-    if not isinstance(target_types, list) or not target_types:
-        target_types = _primekg_target_types_from_query(query)
-    relation_terms = args.get("relation_terms")
-    result = query_primekg(
-        source_terms=[str(value).strip().upper() for value in source_terms if str(value).strip()],
-        target_terms=[str(value).strip() for value in target_terms if str(value).strip()],
-        source_types=source_types if isinstance(source_types, list) else [],
-        target_types=target_types if isinstance(target_types, list) else [],
-        relation_terms=relation_terms if isinstance(relation_terms, list) else [],
-        limit=int(args.get("limit") or 50),
+#     source_types = args.get("source_types")
+#     target_types = args.get("target_types")
+#     if not isinstance(source_types, list) or not source_types:
+#         source_types = ["disease"] if disease and source_terms == [disease] else (["gene/protein"] if source_terms else [])
+#     if not isinstance(target_types, list) or not target_types:
+#         target_types = _primekg_target_types_from_query(query)
+#     relation_terms = args.get("relation_terms")
+#     result = query_primekg(
+#         source_terms=[str(value).strip().upper() for value in source_terms if str(value).strip()],
+#         target_terms=[str(value).strip() for value in target_terms if str(value).strip()],
+#         source_types=source_types if isinstance(source_types, list) else [],
+#         target_types=target_types if isinstance(target_types, list) else [],
+#         relation_terms=relation_terms if isinstance(relation_terms, list) else [],
+#         limit=int(args.get("limit") or 50),
+#     )
+#     result["analysis_arm"] = "primekg"
+#     if _memory_gene_query_requested(query):
+#         result["gene_set_source"] = "stored_deg_genes"
+#         result["direction"] = _deg_direction_from_query(query)
+#     return result
+
+def _run_primekg_query(
+    state: AgentState,
+    args: dict[str, Any]
+):
+    question = (
+        args.get("question")
+        or state.get("query")
+        or ""
     )
-    result["analysis_arm"] = "primekg"
-    if _memory_gene_query_requested(query):
-        result["gene_set_source"] = "stored_deg_genes"
-        result["direction"] = _deg_direction_from_query(query)
-    return result
 
+    return query_primekg(question)
 
 def _run_fetch_openalex(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     disease_name = str(
@@ -997,6 +1026,8 @@ def _finalize(state: AgentState) -> AgentState:
             analysis_arm = "primekg"
         if state.get("opentargets_result"):
             analysis_arm = "opentargets"
+        if state.get("primekg_result"):
+            analysis_arm = "primekg"
         answer = synthesize_technical_response(
             user_query=str(state.get("query") or ""),
             analysis_arm=analysis_arm,
@@ -1139,20 +1170,26 @@ TOOL_SCHEMAS = [
     )(lambda select_top_degree=300, output_path="pyvis_network.html": {"select_top_degree": select_top_degree, "output_path": output_path}),
     tool(
         "primekg_query",
-        description="First-choice local PrimeKG lookup for relationships among drugs, diseases, phenotypes, and genes/proteins. Do not use for pathway enrichment unless the user explicitly asks for PrimeKG/KG pathway relations.",
+        description="""
+        Query PrimeKG using natural language.
+
+        Use for:
+        - disease ↔ gene relationships
+        - gene ↔ pathway relationships
+        - drug ↔ target relationships
+        - disease ↔ drug relationships
+        - phenotype relationships
+
+        Input:
+            question: Natural language question.
+
+        Returns:
+            Answer plus generated Cypher query.
+        """,
         return_direct=False,
-    )(lambda source_terms=None, target_terms=None, source_types=None, target_types=None, relation_terms=None, genes=None, gene=None, disease=None, disease_name=None, top_n=None, limit=50: {
-        "source_terms": _tool_arg_list(source_terms),
-        "target_terms": _tool_arg_list(target_terms),
-        "source_types": _tool_arg_list(source_types),
-        "target_types": _tool_arg_list(target_types),
-        "relation_terms": _tool_arg_list(relation_terms),
-        "genes": _tool_arg_list(genes),
-        "gene": gene or "",
-        "disease": disease or disease_name or "",
-        "top_n": top_n,
-        "limit": limit,
-    }),
+    )(
+        lambda question: {"question": question}
+    ),
     tool(
         "opentargets_association",
         description="Find diseases associated with a gene, or check whether one gene, a gene list, or stored DEG/up-regulated/down-regulated genes are associated with a named disease, using MyGene-standardized Ensembl IDs and OpenTargets.",
