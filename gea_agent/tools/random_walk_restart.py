@@ -19,6 +19,9 @@ def random_walk_with_restart(
     """Random Walk with Restart (RWR) on an undirected weighted graph."""
     if graph.number_of_nodes() == 0 or not seed_genes:
         return {}
+    restart_prob = min(max(float(restart_prob), 0.0), 1.0)
+    max_iter = max(1, int(max_iter))
+    tol = max(float(tol), 0.0)
 
     nodes = list(graph.nodes())
     node_index = {n: i for i, n in enumerate(nodes)}
@@ -167,7 +170,7 @@ def top_rwr_genes(
     seed_genes: list[str],
     *,
     top_k: int = 20,
-    restart_prob: float = 0.5,
+    restart_prob: float = 0.3,
     exclude: Iterable[str] | None = None,
     exclude_hubs: bool = True,
     hub_percentile: float = 0.99,
@@ -175,7 +178,7 @@ def top_rwr_genes(
     seed_subset_frac: float = 0.8,
     random_state: int | None = 42,
     permutation_test: bool = True,
-    permutations: int = 50,
+    permutations: int = 100,
     alpha: float = 0.05,
 ) -> list[tuple[str, float]]:
     """
@@ -188,7 +191,12 @@ def top_rwr_genes(
     - If `permutation_test` is True, filters candidates to those with p-value < alpha
       using the permutation test described in the prompt.
     """
-    print("RWR Seed Genes: ", seed_genes)
+    top_k = max(0, int(top_k))
+    if top_k == 0:
+        return []
+    restart_prob = min(max(float(restart_prob), 0.0), 1.0)
+    alpha = min(max(float(alpha), 0.0), 1.0)
+    permutations = max(1, int(permutations))
     exclude_set = set(exclude) if exclude is not None else set(seed_genes)
     if exclude_hubs:
         exclude_set |= identify_hub_genes(graph, percentile=hub_percentile)
@@ -196,7 +204,7 @@ def top_rwr_genes(
     seed_genes = [g for g in seed_genes if g in graph]
     if not seed_genes:
         return []
-
+    print(seed_genes)
     r = max(1, int(runs))
     if r == 1:
         scores = random_walk_with_restart(graph, seed_genes, restart_prob=restart_prob)
@@ -236,5 +244,5 @@ def top_rwr_genes(
     )
 
     kept = [(g, s) for g, s in candidates if pvals.get(g, 1.0) < alpha]
-    print(kept[:top_k])
+    print(kept)
     return kept[:top_k]

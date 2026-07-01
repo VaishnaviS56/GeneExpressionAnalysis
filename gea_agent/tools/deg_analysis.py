@@ -100,7 +100,12 @@ def _read_deg_csv(csv_path: Path) -> dict[str, Any]:
     }
 
 
-def run_deg_r_analysis(*, srp_ids: list[str] | None = None) -> dict[str, Any]:
+def run_deg_r_analysis(
+    *,
+    srp_ids: list[str] | None = None,
+    control_name: str | None = None,
+    test_name: str | None = None,
+) -> dict[str, Any]:
     """
     Run the hard-coded R DEG workflow and parse the resulting CSV.
 
@@ -139,6 +144,19 @@ def run_deg_r_analysis(*, srp_ids: list[str] | None = None) -> dict[str, Any]:
             "message": "No SRP ids were provided to the DEG runner.",
         }
 
+    control_name = " ".join(str(control_name or "").split()).strip()
+    test_name = " ".join(str(test_name or "").split()).strip()
+    if not control_name or not test_name:
+        return {
+            "status": "missing_groups",
+            "script_path": str(script_path),
+            "supporting_files_dir": str(supporting_dir),
+            "output_csv_path": str(output_path),
+            "genes": [],
+            "rows": [],
+            "message": "Both control_name and test_name are required for the DEG runner.",
+        }
+
     if not executable:
         return {
             "status": "rscript_missing",
@@ -165,9 +183,12 @@ def run_deg_r_analysis(*, srp_ids: list[str] | None = None) -> dict[str, Any]:
 
     try:
         print(srp_ids)
-        print(f"[tool] DEG subprocess: {executable} {script_path} {' '.join(str(s) for s in srp_ids or [])}")
+        print(
+            f"[tool] DEG subprocess: {executable} {script_path} "
+            f"\"{control_name}\" \"{test_name}\" {' '.join(str(s) for s in srp_ids or [])}"
+        )
         subprocess.run(
-            [executable, str(script_path), *[str(s) for s in srp_ids or []]],
+            [executable, str(script_path), control_name, test_name, *[str(s) for s in srp_ids or []]],
             cwd=str(supporting_dir),
             check=True,
             capture_output=True,

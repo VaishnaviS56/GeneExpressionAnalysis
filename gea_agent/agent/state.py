@@ -27,9 +27,16 @@ class AgentState(TypedDict, total=False):
     # technical routing
     analysis_arm: str
     srp_ids: list[str]
+    control_name: str
+    test_name: str
     memory_deg_genes: list[str]
     memory_deg_analysis: dict[str, Any]
     memory_deg_gene_records: list[dict[str, Any]]
+    memory_control_name: str
+    memory_test_name: str
+    memory_enrichr: dict[str, Any]
+    memory_rwr_seed_genes: list[str]
+    memory_rwr_genes: list[tuple[str, float]]
     memory_disease_name: str
     memory_openalex_genes: list[str]
     memory_opentargets_results: list[dict[str, Any]]
@@ -39,8 +46,13 @@ class AgentState(TypedDict, total=False):
     disease_gene: str
     primekg_result: dict[str, Any]
     opentargets_result: dict[str, Any]
+    memory_lookup_result: dict[str, Any]
     openalex_papers: list[dict[str, Any]]
     openalex_genes: list[str]
+    ranked_openalex_papers: list[dict[str, Any]]
+    literature_key_points: list[dict[str, Any]]
+    literature_references: list[dict[str, Any]]
+    literature_summary: str
 
     # DEG branch
     deg_analysis: dict[str, Any]
@@ -54,6 +66,9 @@ class AgentState(TypedDict, total=False):
     rwr_genes: list[tuple[str, float]]
     enrichr: dict[str, Any]
     pyvis_html_path: str
+    kegg_pathway_path: str
+    volcano_plot_path: str
+    visualization_result: dict[str, Any]
 
     # final
     answer: str

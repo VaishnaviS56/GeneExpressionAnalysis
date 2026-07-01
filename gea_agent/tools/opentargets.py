@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-import requests
-
 try:
     import mygene
 except Exception:  # pragma: no cover - keeps the tool importable before deps are installed
     mygene = None
+
+from gea_agent.config import SETTINGS
+from gea_agent.tools.http_utils import get_retrying_session
 
 
 _SEARCH_URL = "https://api.platform.opentargets.org/api/v4/search"
@@ -20,10 +21,10 @@ def _safe_text(value: Any) -> str:
 
 def _search_entity(query: str, entity_type: str) -> dict[str, Any] | None:
     try:
-        response = requests.get(
+        response = get_retrying_session().get(
             _SEARCH_URL,
             params={"q": query, "type": entity_type},
-            timeout=30,
+            timeout=SETTINGS.http_timeout_seconds,
         )
         response.raise_for_status()
         payload = response.json()
@@ -94,12 +95,27 @@ def resolve_genes_to_ensembl_ids(genes: list[str]) -> dict[str, Any]:
         }
 
     if mygene is None:
+        fallback_resolved = []
+        fallback_unresolved = []
+        for gene in cleaned_genes:
+            if gene.startswith("ENSG"):
+                fallback_resolved.append(
+                    {
+                        "gene": gene,
+                        "symbol": gene,
+                        "name": gene,
+                        "ensembl_id": gene,
+                        "mygene_result": {},
+                    }
+                )
+            else:
+                fallback_unresolved.append(gene)
         return {
-            "status": "dependency_missing",
+            "status": "partial" if fallback_resolved else "dependency_missing",
             "genes": cleaned_genes,
-            "resolved": [],
-            "unresolved": cleaned_genes,
-            "message": "The mygene package is required to resolve genes to Ensembl IDs.",
+            "resolved": fallback_resolved,
+            "unresolved": fallback_unresolved,
+            "message": "The mygene package is required to resolve gene symbols to Ensembl IDs. Existing ENSG identifiers were kept as-is.",
         }
 
     try:
@@ -207,10 +223,10 @@ def _graphql_association(target_id: str, disease_id: str = "") -> dict[str, Any]
     }
     """
     try:
-        response = requests.post(
+        response = get_retrying_session().post(
             _GRAPHQL_URL,
             json={"query": query, "variables": {"targetId": target_id}},
-            timeout=30,
+            timeout=SETTINGS.http_timeout_seconds,
         )
         response.raise_for_status()
         payload = response.json()
@@ -239,6 +255,56 @@ def _graphql_association(target_id: str, disease_id: str = "") -> dict[str, Any]
         },
         "association": association,
         "all_rows": rows[:10],
+    }
+
+
+def _graphql_known_drugs(target_id: str) -> dict[str, Any] | None:
+    query = """
+    query KnownDrugs($targetId: String!) {
+      target(ensemblId: $targetId) {
+        approvedSymbol
+        knownDrugs {
+          count
+          rows {
+            phase
+            drug {
+              id
+              name
+            }
+            disease {
+              id
+              name
+            }
+          }
+        }
+      }
+    }
+    """
+    try:
+        response = get_retrying_session().post(
+            _GRAPHQL_URL,
+            json={"query": query, "variables": {"targetId": target_id}},
+            timeout=SETTINGS.http_timeout_seconds,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        return {"status": "request_failed", "message": str(exc)}
+
+    target = (((payload or {}).get("data") or {}).get("target") or {})
+    known_drugs = (target or {}).get("knownDrugs") or {}
+    rows = known_drugs.get("rows") or []
+    if not isinstance(rows, list):
+        rows = []
+
+    return {
+        "status": "ok",
+        "target": {
+            "id": target_id,
+            "symbol": target.get("approvedSymbol", ""),
+        },
+        "count": known_drugs.get("count"),
+        "all_rows": rows[:25],
     }
 
 
@@ -305,6 +371,71 @@ def find_diseases_for_gene(gene: str) -> dict[str, Any]:
         "top_diseases": top_diseases,
         "candidate_associations": assoc.get("all_rows", []),
         "message": "Retrieved top OpenTargets disease associations." if top_diseases else "No associated diseases found in top OpenTargets rows.",
+    }
+
+
+def find_drugs_for_gene(gene: str) -> dict[str, Any]:
+    gene = _safe_text(gene)
+    if not gene:
+        return {
+            "status": "missing_input",
+            "gene": "",
+            "associated": False,
+            "top_drugs": [],
+            "message": "Gene is required.",
+        }
+
+    gene_resolution = resolve_gene_to_ensembl_id(gene)
+    target_id = str(gene_resolution.get("ensembl_id") or "").strip()
+    if not target_id:
+        return {
+            "status": gene_resolution.get("status") or "lookup_failed",
+            "gene": gene,
+            "associated": False,
+            "gene_resolution": gene_resolution,
+            "top_drugs": [],
+            "message": gene_resolution.get("message") or "Could not resolve an Ensembl ID.",
+        }
+
+    drug_result = _graphql_known_drugs(target_id)
+    if not isinstance(drug_result, dict) or drug_result.get("status") != "ok":
+        return {
+            "status": "request_failed",
+            "gene": gene,
+            "associated": False,
+            "gene_resolution": gene_resolution,
+            "ensembl_id": target_id,
+            "top_drugs": [],
+            "message": drug_result.get("message") if isinstance(drug_result, dict) else "OpenTargets drug lookup failed.",
+        }
+
+    top_drugs: list[dict[str, Any]] = []
+    for row in drug_result.get("all_rows", []):
+        if not isinstance(row, dict):
+            continue
+        drug = row.get("drug") or {}
+        disease = row.get("disease") or {}
+        if not isinstance(drug, dict):
+            continue
+        top_drugs.append(
+            {
+                "id": drug.get("id"),
+                "name": drug.get("name"),
+                "phase": row.get("phase"),
+                "disease_id": disease.get("id") if isinstance(disease, dict) else None,
+                "disease_name": disease.get("name") if isinstance(disease, dict) else None,
+            }
+        )
+
+    return {
+        "status": "ok",
+        "gene": gene,
+        "gene_resolution": gene_resolution,
+        "ensembl_id": target_id,
+        "associated": bool(top_drugs),
+        "top_drugs": top_drugs,
+        "candidate_drug_associations": drug_result.get("all_rows", []),
+        "message": "Retrieved top OpenTargets drug associations." if top_drugs else "No associated drugs found in top OpenTargets rows.",
     }
 
 

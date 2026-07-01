@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import json
+import math
+import re
 from typing import Any
 
-import gget
+try:
+    import gget
+except Exception:  # pragma: no cover - dependency guard
+    gget = None
 
 
 def _as_records(obj: Any) -> list[dict[str, Any]]:
@@ -28,50 +34,66 @@ def _normalize_terms(records: list[dict[str, Any]], *, top_n: int) -> list[dict[
                 return row[k]
         return None
 
-    out: list[dict[str, Any]] = []
-    for row in records[: max(top_n * 3, top_n)]:
-        term = pick(row, "path_name", "term", "term_name", "name")
+    def to_float(value: Any) -> float | None:
+        try:
+            out = float(value) if value is not None else None
+        except Exception:
+            return None
+        if out is None or math.isnan(out) or math.isinf(out):
+            return None
+        return out
+
+    normalized: list[dict[str, Any]] = []
+
+    for row in records:
+        term = pick(row, "path_name", "term", "term_name", "name", "Path", "Term")
         if not isinstance(term, str):
             continue
 
-        p = pick(row, "p_val", "p_value")
-        adj = pick(row, "adj_p_val", "adjusted_p_value", "adj_p_value")
-        cs = pick(row, "combined_score")
-        overlap = pick(row, "overlapping_genes", "overlap_genes", "genes")
+        p = pick(row, "p_val", "p_value", "pvalue", "P-value", "P_value")
+        adj = pick(
+            row,
+            "adj_p_val",
+            "adjusted_p_value",
+            "adj_p_value",
+            "adjusted_pval",
+            "Adjusted P-value",
+            "Adjusted P-value ",
+            "adjP",
+        )
+        cs = pick(row, "combined_score", "Combined Score", "combinedScore")
+        overlap = pick(row, "overlapping_genes", "overlap_genes", "genes", "Overlap")
 
-        try:
-            p_f = float(p) if p is not None else None
-        except Exception:
-            p_f = None
-        try:
-            adj_f = float(adj) if adj is not None else None
-        except Exception:
-            adj_f = None
-        try:
-            cs_f = float(cs) if cs is not None else None
-        except Exception:
-            cs_f = None
+        p_f = to_float(p)
+        adj_f = to_float(adj)
+        cs_f = to_float(cs)
 
         if isinstance(overlap, str):
-            overlap_genes = [g.strip() for g in overlap.split(";") if g.strip()]
+            overlap_genes = [g.strip() for g in re.split(r"[;,]", overlap) if g.strip()]
         elif isinstance(overlap, list):
             overlap_genes = [str(g).strip() for g in overlap if str(g).strip()]
         else:
             overlap_genes = []
+        normalized.append(
+            {
+                "term": term,
+                "p_value": p_f,
+                "adjusted_p_value": adj_f,
+                "combined_score": cs_f,
+                "overlapping_genes": overlap_genes,
+                "n_overlap_genes": len(overlap_genes),
+            }
+        )
 
-        term_obj: dict[str, Any] = {"term": term, "overlapping_genes": overlap_genes}
-        if p_f is not None:
-            term_obj["p_value"] = p_f
-        if adj_f is not None:
-            term_obj["adjusted_p_value"] = adj_f
-        if cs_f is not None:
-            term_obj["combined_score"] = cs_f
+    normalized.sort(
+        key=lambda x: (
+            x["adjusted_p_value"]
+            if x["adjusted_p_value"] is not None
+            else float("inf")
+        )
+    )
 
-        out.append(term_obj)
-        if len(out) >= top_n:
-            break
-
-    return out
+    return normalized[:top_n]
 
 
 def enrichr_pathways(
@@ -84,42 +106,51 @@ def enrichr_pathways(
 ) -> dict[str, Any]:
     genes = [g.strip().upper() for g in genes if g and g.strip()]
     genes = list(dict.fromkeys(genes))
-    print("Enrichr Genes: ", genes)
     background_genes = background_genes or []
     background_genes = [g.strip().upper() for g in background_genes if g and g.strip()]
     background_genes = list(dict.fromkeys(background_genes + genes))
 
     if not genes:
-        return {"input_genes": [], "background_genes": background_genes, "libraries": {}}
+        return {"status": "missing_input", "input_genes": [], "background_genes": background_genes, "libraries": {}}
+
+    if gget is None:
+        return {
+            "status": "dependency_missing",
+            "input_genes": genes,
+            "background_genes": background_genes,
+            "libraries": {},
+            "messages": ["gget is not installed, so enrichment could not be run."],
+        }
 
     libraries = libraries or [
         "Reactome_2022",
         "KEGG_2021_Human",
         "GO_Biological_Process_2023",
+        "GO_Molecular_Function_2023",
+        "GO_Cellular_Component_2023",
     ]
 
     out: dict[str, list[dict[str, Any]]] = {}
+    messages: list[str] = []
     for lib in libraries:
-        raw = gget.enrichr(
-            genes=genes,
-            database=lib,
-            species=species,
-            background_list=background_genes if background_genes else None,
-            json=True,
-            verbose=False,
-        )
-        i=0
-        for pathway in raw:
-            i+=1
-            if i>5:
-                break
-            print(pathway["path_name"])
-            print(pathway.get("overlapping_genes"))
-        records = _as_records(raw)
-        out[lib] = _normalize_terms(records, top_n=2)
+        try:
+            raw = gget.enrichr(
+                genes=genes,
+                database=lib,
+                species=species,
+            )
+            records = _as_records(raw)
+            out[lib] = _normalize_terms(records, top_n=top_n)
+        except Exception as exc:
+            out[lib] = []
+            messages.append(f"{lib}: {exc}")
 
+    status = "ok" if any(out.values()) else "error"
     return {
+        "status": status,
         "input_genes": genes,
         "background_genes": background_genes,
         "libraries": out,
+        "top_pathways": {lib: terms[:10] for lib, terms in out.items() if isinstance(terms, list)},
+        "messages": messages,
     }

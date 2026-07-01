@@ -5,14 +5,29 @@ library("DESeq2")
 
 options(timeout = 1500)
 
+# args <- commandArgs(trailingOnly = TRUE)
+
+# if (length(args) == 0) {
+#   stop("Please provide at least one SRP accession")
+# }
+
+# target_srp <- args
+
+# print(target_srp)
+
 args <- commandArgs(trailingOnly = TRUE)
 
-if (length(args) == 0) {
-  stop("Please provide at least one SRP accession")
+if (length(args) < 3) {
+  stop("Usage: Rscript script.R <control_name> <test_name> <SRP1> [SRP2 ...]")
 }
 
-target_srp <- args
+control_name <- args[2]
+test_name <- args[1]
+target_srp <- args[-c(1, 2)]
 
+cat("Control:", control_name, "\n")
+cat("Test:", test_name, "\n")
+cat("SRP IDs:\n")
 print(target_srp)
 
 cache_dir <- "cache"
@@ -123,24 +138,27 @@ for(i in seq_len(nrow(studies))) {
 	print(head(colnames(counts)))
 }
 
-# Combine all studies by gene ID
-GeneCounts <- Reduce(
-    function(x, y) merge(
-        x,
-        y,
-        by = "row.names",
-        all = TRUE
-    ),
-    count_list
-)
+if (length(count_list) == 1) {
 
-rownames(GeneCounts) <- GeneCounts$Row.names
-GeneCounts$Row.names <- NULL
+    GeneCounts <- count_list[[1]]
 
-# Missing genes in one study become 0
+} else {
+
+    GeneCounts <- Reduce(
+        function(x, y) merge(
+            x,
+            y,
+            by = "row.names",
+            all = TRUE
+        ),
+        count_list
+    )
+
+    rownames(GeneCounts) <- GeneCounts$Row.names
+    GeneCounts$Row.names <- NULL
+}
+
 GeneCounts[is.na(GeneCounts)] <- 0
-
-# Convert to matrix if downstream code expects a matrix
 GeneCounts <- as.matrix(GeneCounts)
 
 # Recreate getDEE2-style object
@@ -198,6 +216,12 @@ get_treatment_from_biosample <- function(biosample_acc) {
   attrs <- do.call(rbind, attrs)
 
   idx <- which(tolower(attrs[, "name"]) == "treatment")
+  # idx <- which(tolower(attrs[, "name"]) == "source_name")
+  # idx <- which(
+  #   tolower(attrs[, "name"]) == "source_name" |
+  #   tolower(attrs[, "name"]) == "treatment"
+  # )
+  cat("ID:", idx)
 
   if (length(idx) == 0)
     return(NA_character_)
@@ -231,16 +255,34 @@ sra.metadata$treatment <- treatment_map[
   sra.metadata$BioSample
 ]
 
-# Original disease assignment
-sra.metadata$disease <- as.factor(
-  as.numeric(
-    grepl(
-      "palmitate",
-      sra.metadata$treatment,
-      ignore.case = TRUE
-    )
-  )
+# # Original disease assignment
+# sra.metadata$disease <- as.factor(
+#   as.numeric(
+#     grepl(
+#       "COPD lung tissue",
+#       sra.metadata$treatment,
+#       ignore.case = TRUE
+#     )
+#   )
+# )
+
+sra.metadata <- sra.metadata[
+    sra.metadata$treatment %in% c(control_name, test_name),
+]
+
+sra.metadata$disease <- factor(
+    sra.metadata$treatment,
+    levels = c(control_name, test_name)
 )
+
+# sra.metadata <- sra.metadata[
+#     sra.metadata$treatment %in% c("Untreated", "Dexamethasone"),
+# ]
+
+# sra.metadata$disease <- factor(
+#     sra.metadata$treatment,
+#     levels = c("Untreated", "Dexamethasone")
+# )
 
 write.csv(
   sra.metadata,
@@ -260,7 +302,11 @@ zz <-as.data.frame(zz[order(zz$padj),])
 zz$Ensembl <- rownames(zz)
 
 library("biomaRt")
-mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+mart <- useEnsembl(
+    biomart = "genes",
+    dataset = "hsapiens_gene_ensembl",
+    mirror = "useast"
+)
 annots <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id",
                 "hgnc_symbol", "entrezgene_id", "entrezgene_accession", 
                 "external_gene_name", "description"), 

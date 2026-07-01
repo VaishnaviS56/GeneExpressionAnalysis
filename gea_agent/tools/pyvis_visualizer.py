@@ -37,6 +37,8 @@ def build_pyvis_html(
     # net.heading = title
 
     nodes = list(graph.nodes())
+    if select_top_degree is not None:
+        select_top_degree = max(1, int(select_top_degree))
     if select_top_degree is not None and graph.number_of_nodes() > select_top_degree:
         ranked = sorted(graph.degree(), key=lambda item: item[1], reverse=True)
         keep = {node for node, _ in ranked[:select_top_degree]}
@@ -99,5 +101,6 @@ def build_pyvis_html(
     )
 
     html_path = output_path or "pyvis_network.html"
+    Path(html_path).resolve().parent.mkdir(parents=True, exist_ok=True)
     net.write_html(html_path)
     return str(Path(html_path).resolve())

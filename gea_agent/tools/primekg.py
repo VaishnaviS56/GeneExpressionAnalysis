@@ -2,93 +2,99 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_neo4j import Neo4jGraph
-from langchain_neo4j import GraphCypherQAChain
-
-from gea_agent.tools.llm import get_llm
-from gea_agent.config import SETTINGS
-
-
 from langchain_core.prompts import PromptTemplate
+from langchain_neo4j import GraphCypherQAChain
+from langchain_neo4j import Neo4jGraph
+
+from gea_agent.config import SETTINGS
+from gea_agent.tools.llm import get_llm
 
 
 PRIMEKG_CYPHER_PROMPT = PromptTemplate(
     input_variables=["schema", "question"],
     template="""
-You are an expert biomedical graph database engineer.
+You are the Cypher-generation specialist for a biomedical agent workflow.
+Return one valid read-only Cypher query and nothing else.
 
-You are generating Cypher queries for PrimeKG.
+Schema constraints:
+- The only node label is `:Entity`.
+- The only relationship type is `:RELATED_TO`.
+- Never invent labels such as `:Gene`, `:Disease`, `:Drug`, or `:Pathway`.
+- Never invent relationship types such as `TREATS`, `TARGETS`, or `INTERACTS_WITH`.
+- Each entity may have `id`, `name`, `type`, and `source`.
+- Relationships may include `relation` and `display_relation`.
 
-PrimeKG contains biomedical entities such as:
+Entity typing:
+- Always filter biological categories with `Entity.type`.
+- Valid types include `gene/protein`, `disease`, `drug`, `pathway`, `anatomy`,
+  `biological_process`, `molecular_function`, `cellular_component`,
+  `effect/phenotype`, and `exposure`.
 
-Entity Types:
-- Gene
-- Drug
-- Disease
-- Pathway
-- Phenotype
-- Anatomy
-- BiologicalProcess
-- MolecularFunction
-- CellularComponent
-- Exposure
+Query style:
+- Use only read-only Cypher.
+- Use `MATCH`.
+- Use `Entity.type` instead of labels for biological categories.
+- Use `toLower(...)` for matching.
+- Prefer `CONTAINS` unless the user explicitly requests exact matching.
+- Return names instead of ids whenever possible.
+- Use `DISTINCT` when returning entities.
+- Do not use `LIMIT` unless requested or necessary to prevent an unbounded query.
+- Use relationship metadata only when it materially improves specificity.
 
-The graph schema is:
+Intent mapping:
+- disease -> genes: one-hop disease to gene/protein query
+- gene -> diseases: one-hop gene/protein to disease query
+- gene -> pathways: one-hop gene/protein to pathway query
+- disease -> drugs: one-hop disease to drug query
+- drug -> genes: one-hop drug to gene/protein query
+- "connected", "path between", "what links": shortest path or bounded multi-hop path
+- "neighbors", "related to", "associated with": one-hop neighborhood query
+- "shared": common-neighbor query
+- "side effects": use `r.relation="drug_effect"`
+- "contraindications": use `r.relation="contraindication"`
 
-{schema}
-
-Rules:
-
-1. Generate ONLY Cypher.
-2. Do NOT explain your reasoning.
-3. Do NOT return markdown.
-4. Use case-insensitive matching when searching names.
-5. Use CONTAINS instead of exact equality whenever possible.
-6. Return meaningful names, not internal IDs.
-7. Limit results to 25 unless the user explicitly asks for more.
-8. Prefer shortest graph traversals.
-9. Never invent labels or relationship types that are not present in the schema.
-10. If the user asks for genes, return gene/protein entities.
-11. If the user asks for pathways, return pathway entities.
-12. If the user asks for drugs, return drug entities.
-13. If the user asks for diseases, return disease entities.
-
-Examples
-
-Question:
-What genes are associated with type 2 diabetes?
-
-Cypher:
-MATCH (d:Entity)-[r]-(g:Entity)
-WHERE d.type = "disease"
-AND g.type = "gene/protein"
-WHERE toLower(d.name) CONTAINS "diabetes"
+Preferred templates:
+```cypher
+MATCH (d:Entity)-[:RELATED_TO]-(g:Entity)
+WHERE d.type="disease"
+AND g.type="gene/protein"
+AND toLower(d.name) CONTAINS "<disease>"
 RETURN DISTINCT g.name
-LIMIT 25
+ORDER BY g.name
+```
 
-Question:
-What drugs target JAK2?
-
-Cypher:
-MATCH (d:Entity)-[r]-(g:Entity)
-WHERE d.type = "disease"
-AND g.type = "gene/protein"
-WHERE toLower(g.name) CONTAINS "jak2"
-RETURN DISTINCT drug.name
-LIMIT 25
-
-Question:
-What pathways involve TP53?
-
-Cypher:
-MATCH (d:Entity)-[r]-(g:Entity)
-WHERE d.type = "disease"
-AND g.type = "gene/protein"
-WHERE toLower(g.name) CONTAINS "tp53"
+```cypher
+MATCH (g:Entity)-[:RELATED_TO]-(p:Entity)
+WHERE g.type="gene/protein"
+AND p.type="pathway"
+AND toLower(g.name) CONTAINS "<gene>"
 RETURN DISTINCT p.name
-LIMIT 25
+ORDER BY p.name
+```
 
-Question:
+```cypher
+MATCH (n:Entity)-[r:RELATED_TO]-(m:Entity)
+WHERE toLower(n.name)=toLower("<entity>")
+RETURN DISTINCT m.name, m.type, r.relation, r.display_relation
+```
+
+```cypher
+MATCH (a:Entity),(b:Entity)
+WHERE toLower(a.name)=toLower("<entity1>")
+AND toLower(b.name)=toLower("<entity2>")
+MATCH p=shortestPath((a)-[:RELATED_TO*]-(b))
+RETURN p
+```
+
+Validation checklist:
+- Uses only `:Entity`
+- Uses only `:RELATED_TO`
+- Uses `Entity.type` when filtering categories
+- Uses `toLower(...)`
+- Uses `CONTAINS` unless exact matching is explicitly requested
+- Is read-only
+
+User question:
 {question}
 
 Cypher:
@@ -98,11 +104,8 @@ Cypher:
 PRIMEKG_QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
     template="""
-You are a biomedical research assistant.
-
-You are given query results retrieved from PrimeKG.
-
-Use only the provided data.
+You are the answer-synthesis specialist for PrimeKG inside a biomedical agent workflow.
+Use only the provided query results.
 
 Context:
 {context}
@@ -111,12 +114,12 @@ Question:
 {question}
 
 Instructions:
-
-- Answer clearly and concisely.
-- Mention genes, drugs, diseases and pathways explicitly.
-- Do not invent information.
-- If no results were found, state that.
-- If multiple entities are returned, summarize the major findings.
+- Answer the question directly from the returned graph results.
+- Mention genes, drugs, diseases, phenotypes, and pathways explicitly when present.
+- If the results imply a path or relationship, describe it plainly.
+- Do not invent facts, mechanisms, or missing entities.
+- If no relevant results were found, state that clearly.
+- If multiple entities are returned, summarize the dominant findings rather than listing everything.
 
 Answer:
 """
@@ -151,12 +154,13 @@ def _get_chain() -> GraphCypherQAChain:
             cypher_prompt=PRIMEKG_CYPHER_PROMPT,
             qa_prompt=PRIMEKG_QA_PROMPT,
             validate_cypher=True,
-            verbose=True,
+            verbose=False,
             return_intermediate_steps=True,
             allow_dangerous_requests=True,
         )
 
     return _chain
+
 
 def refresh_primekg_schema() -> str:
     global _graph
@@ -167,22 +171,22 @@ def refresh_primekg_schema() -> str:
     _graph.refresh_schema()
     return _graph.schema
 
+
 def get_primekg_schema() -> dict[str, Any]:
     graph = _get_graph()
     graph.refresh_schema()
 
     return {
         "status": "ok",
-        "schema": graph.schema
+        "schema": graph.schema,
     }
+
 
 def test_primekg_connection() -> dict[str, Any]:
     try:
         graph = _get_graph()
 
-        result = graph.query(
-            "RETURN 'connected' AS status"
-        )
+        result = graph.query("RETURN 'connected' AS status")
 
         return {
             "status": "ok",
@@ -194,6 +198,7 @@ def test_primekg_connection() -> dict[str, Any]:
             "status": "error",
             "message": str(exc),
         }
+
 
 def query_primekg(question: str) -> dict[str, Any]:
     """
@@ -220,27 +225,26 @@ def query_primekg(question: str) -> dict[str, Any]:
     """
 
     try:
-
-        result = _get_chain().invoke(
-            {"query": question}
-        )
+        result = _get_chain().invoke({"query": question})
 
         cypher = ""
-
-        steps = result.get(
-            "intermediate_steps",
-            []
-        )
+        steps = result.get("intermediate_steps", [])
 
         for step in steps:
             if isinstance(step, dict):
-                cypher = (
-                    step.get("query")
-                    or step.get("cypher")
-                    or cypher
-                )
-        print("Cypher: ", cypher)
-        print("Raw Result: ", result.get("result"))
+                cypher = step.get("query") or step.get("cypher") or cypher
+
+        cypher = str(cypher or "").strip()
+        if not cypher:
+            return {
+                "status": "error",
+                "question": question,
+                "answer": "",
+                "cypher": "",
+                "raw_result": [],
+                "message": "PrimeKG did not generate a Cypher query.",
+            }
+
         return {
             "status": "ok",
             "question": question,
@@ -250,7 +254,6 @@ def query_primekg(question: str) -> dict[str, Any]:
         }
 
     except Exception as exc:
-
         return {
             "status": "error",
             "question": question,

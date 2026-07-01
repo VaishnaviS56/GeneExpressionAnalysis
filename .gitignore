@@ -3,5 +3,23 @@ string_full_graph.pkl
 *.csv
 *.log
 *.graphml
+*.png
+*.html
+*.sqlite3
+*.pkl
+.pytest_cache/
+.mypy_cache/
+node_modules/
+frontend/node_modules/
+backend/data/
+# Ignore everything inside the GEA directory
+GEA/*
+# Allow Git to look inside subdirectories of GEA
+!GEA/**/
+# Do not ignore .R files anywhere inside GEA (at the root or nested)
+!GEA/**/*.R
 .env
+.venv
+.vscode
 __pycache__/
+*.pyc
