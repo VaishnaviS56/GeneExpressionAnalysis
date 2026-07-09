@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -9,6 +10,7 @@ from langchain_neo4j import Neo4jGraph
 
 from gea_agent.config import SETTINGS
 from gea_agent.tools.llm import get_llm
+from gea_agent.tools.llm import parse_json_object
 
 
 PRIMEKG_CYPHER_PROMPT = PromptTemplate(
@@ -116,6 +118,9 @@ Question:
 
 Instructions:
 - Answer the question directly from the returned graph results.
+- Treat row fields such as `related_type`, `relation`, and `display_relation` as key graph semantics when they are present.
+- Use `display_relation` as the preferred human-readable relation label; fall back to `relation` if `display_relation` is missing.
+- Use `related_type` to disambiguate whether a result is a gene/protein, disease, drug, pathway, or phenotype.
 - Mention genes, drugs, diseases, phenotypes, and pathways explicitly when present.
 - If the results imply a path or relationship, describe it plainly.
 - Do not invent facts, mechanisms, or missing entities.
@@ -127,6 +132,9 @@ Answer:
 )
 
 READ_ONLY_CYPHER_PREFIXES = ("match", "with", "return", "call", "unwind")
+DEFAULT_PRIMEKG_RESULT_LIMIT = 500
+DEFAULT_PRIMEKG_CANDIDATE_LIMIT = 500
+MAX_RERANK_CANDIDATES = 100
 ENTITY_ALIASES = {
     "type 2 diabetes": ["type 2 diabetes", "t2d", "diabetes mellitus noninsulin dependent", "noninsulin-dependent"],
     "type ii diabetes": ["type ii diabetes", "type 2 diabetes", "t2d", "diabetes mellitus noninsulin dependent"],
@@ -312,6 +320,215 @@ def _contains_condition(field: str, raw_text: str) -> str:
     return "(" + " OR ".join(clauses) + ")"
 
 
+def _query_keywords(question: str) -> list[str]:
+    normalized = _normalize_entity_text(question)
+    if not normalized:
+        return []
+
+    seen: set[str] = set()
+    keywords: list[str] = []
+    for token in normalized.split():
+        if len(token) < 3 or token in ENTITY_NAME_STOPWORDS:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        keywords.append(token)
+    return keywords
+
+
+def _query_target_types(question: str) -> set[str]:
+    lowered = str(question or "").lower()
+    target_types: set[str] = set()
+    if any(token in lowered for token in ("gene", "genes", "protein", "proteins", "target", "targets")):
+        target_types.add("gene/protein")
+    if any(token in lowered for token in ("disease", "diseases", "diabetes", "cancer", "syndrome")):
+        target_types.add("disease")
+    if any(token in lowered for token in ("drug", "drugs", "compound", "treatment", "therapy")):
+        target_types.add("drug")
+    if any(token in lowered for token in ("pathway", "pathways")):
+        target_types.add("pathway")
+    if any(token in lowered for token in ("phenotype", "phenotypes", "symptom", "side effect")):
+        target_types.add("effect/phenotype")
+    return target_types
+
+
+def _row_to_search_text(row: Any) -> str:
+    if isinstance(row, dict):
+        fragments: list[str] = []
+        for key, value in row.items():
+            fragments.append(str(key))
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                fragments.append("" if value is None else str(value))
+            else:
+                fragments.append(json.dumps(value, ensure_ascii=False, sort_keys=True))
+        return _normalize_entity_text(" ".join(fragments))
+    return _normalize_entity_text(str(row))
+
+
+def _score_primekg_row(question: str, row: Any, index: int) -> dict[str, Any]:
+    text = _row_to_search_text(row)
+    keywords = _query_keywords(question)
+    target_types = _query_target_types(question)
+    score = 0.0
+    matched_keywords: list[str] = []
+
+    for keyword in keywords:
+        if keyword in text:
+            score += 2.0
+            matched_keywords.append(keyword)
+
+    normalized_question = _normalize_entity_text(question)
+    if normalized_question and normalized_question in text:
+        score += 4.0
+
+    if isinstance(row, dict):
+        relation = _normalize_entity_text(row.get("display_relation") or row.get("relation") or "")
+        if relation:
+            for keyword in keywords:
+                if keyword in relation:
+                    score += 1.0
+                    break
+
+        if target_types:
+            for key, value in row.items():
+                if "type" not in str(key).lower():
+                    continue
+                normalized_value = _normalize_entity_text(value)
+                if normalized_value in target_types:
+                    score += 2.5
+
+    score += max(0.0, 0.25 - (index * 0.001))
+    return {
+        "row": row,
+        "score": round(score, 4),
+        "matched_keywords": matched_keywords[:8],
+        "index": index,
+    }
+
+
+def _ensure_candidate_limit(cypher: str, candidate_limit: int = DEFAULT_PRIMEKG_CANDIDATE_LIMIT) -> str:
+    text = str(cypher or "").strip()
+    if not text:
+        return text
+
+    limit_pattern = re.compile(r"(?is)\bLIMIT\s+(\d+)\s*$")
+    match = limit_pattern.search(text)
+    if match:
+        current_limit = int(match.group(1))
+        if current_limit >= candidate_limit:
+            return text
+        return limit_pattern.sub(f"LIMIT {candidate_limit}", text)
+
+    if re.search(r"(?is)\bRETURN\b", text):
+        return text + f"\nLIMIT {candidate_limit}"
+    return text
+
+
+def _llm_rerank_primekg_rows(question: str, rows: list[Any], top_k: int) -> dict[str, Any] | None:
+    if not rows:
+        return None
+
+    candidate_rows = rows[:MAX_RERANK_CANDIDATES]
+    serialized_rows = []
+    for index, row in enumerate(candidate_rows):
+        if isinstance(row, dict):
+            compact_row = {str(key): row[key] for key in list(row.keys())[:8]}
+        else:
+            compact_row = {"value": str(row)}
+        serialized_rows.append({"index": index, "row": compact_row})
+
+    prompt = (
+        "You are ranking PrimeKG query results for biomedical relevance.\n"
+        "Select the rows that best answer the user's question.\n"
+        f"Return JSON only with keys `selected_indices` and `reason`.\n"
+        f"Choose at most {top_k} indices, ordered best to worst.\n"
+        "Prefer rows that directly mention the queried entity, requested entity type, and relevant relation.\n"
+        "Pay special attention to `related_type`, `relation`, and `display_relation` when they are present.\n"
+        "Use `display_relation` as the most human-readable relationship label and `related_type` to match the requested entity category.\n\n"
+        f"Question:\n{question}\n\n"
+        f"Rows:\n{json.dumps(serialized_rows, ensure_ascii=False)}"
+    )
+    response = get_llm().invoke([("user", prompt)])
+    parsed = parse_json_object(getattr(response, "content", "") or "")
+    indices = parsed.get("selected_indices")
+    if not isinstance(indices, list):
+        return None
+
+    selected_indices: list[int] = []
+    seen: set[int] = set()
+    for value in indices:
+        try:
+            idx = int(value)
+        except Exception:
+            continue
+        if idx < 0 or idx >= len(candidate_rows) or idx in seen:
+            continue
+        seen.add(idx)
+        selected_indices.append(idx)
+        if len(selected_indices) >= top_k:
+            break
+
+    if not selected_indices:
+        return None
+
+    return {
+        "rows": [candidate_rows[idx] for idx in selected_indices],
+        "ranking_method": "llm",
+        "ranking_reason": str(parsed.get("reason") or "").strip(),
+        "selected_indices": selected_indices,
+    }
+
+
+def _rerank_primekg_rows(question: str, rows: list[Any], top_k: int = DEFAULT_PRIMEKG_RESULT_LIMIT) -> dict[str, Any]:
+    if not rows:
+        return {
+            "rows": [],
+            "candidate_count": 0,
+            "selected_count": 0,
+            "ranking_method": "none",
+            "ranking_reason": "",
+            "selected_indices": [],
+        }
+
+    try:
+        llm_ranked = _llm_rerank_primekg_rows(question, rows, top_k)
+        if llm_ranked:
+            return {
+                **llm_ranked,
+                "candidate_count": len(rows),
+                "selected_count": len(llm_ranked["rows"]),
+            }
+    except Exception:
+        pass
+
+    scored_rows = [_score_primekg_row(question, row, index) for index, row in enumerate(rows)]
+    scored_rows.sort(key=lambda item: (-item["score"], item["index"]))
+    selected = scored_rows[:top_k]
+    return {
+        "rows": [item["row"] for item in selected],
+        "candidate_count": len(rows),
+        "selected_count": len(selected),
+        "ranking_method": "heuristic",
+        "ranking_reason": "Selected rows by keyword, relation, and entity-type overlap with the user query.",
+        "selected_indices": [item["index"] for item in selected],
+    }
+
+
+def _synthesize_primekg_answer(question: str, rows: list[Any]) -> str:
+    if not rows:
+        return "PrimeKG returned no relevant rows for this question."
+
+    context = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+    response = get_llm().invoke(
+        [
+            ("system", PRIMEKG_QA_PROMPT.format(context=context, question=question)),
+        ]
+    )
+    answer = str(getattr(response, "content", "") or "").strip()
+    return answer or f"PrimeKG returned {len(rows)} relevant row(s)."
+
+
 def _extract_between_entities(question: str) -> list[str]:
     match = re.search(
         r"(?:between|connects?|links?)\s+(.+?)\s+(?:and|to)\s+(.+?)(?:\?|$)",
@@ -377,7 +594,7 @@ AND d.type = "disease"
 AND {gene_condition}
 RETURN DISTINCT d.name AS disease, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY disease
-LIMIT 25
+LIMIT 100
 """.strip()
 
     if asks_for_genes or ("gene" in lowered and "disease" in lowered):
@@ -388,7 +605,7 @@ AND g.type = "gene/protein"
 AND {entity_condition}
 RETURN DISTINCT g.name AS gene, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY gene
-LIMIT 25
+LIMIT 100
 """.strip()
 
     if "pathway" in lowered:
@@ -399,7 +616,7 @@ AND p.type = "pathway"
 AND {gene_condition}
 RETURN DISTINCT p.name AS pathway, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY pathway
-LIMIT 25
+LIMIT 100
 """.strip()
 
     if "drug" in lowered and "disease" in lowered:
@@ -410,7 +627,7 @@ AND drug.type = "drug"
 AND {entity_condition}
 RETURN DISTINCT drug.name AS drug, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY drug
-LIMIT 25
+LIMIT 100
 """.strip()
 
     if "drug" in lowered and "gene" in lowered:
@@ -421,7 +638,7 @@ AND g.type = "gene/protein"
 AND {drug_condition}
 RETURN DISTINCT g.name AS gene, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY gene
-LIMIT 25
+LIMIT 100
 """.strip()
 
     return f"""
@@ -433,25 +650,42 @@ RETURN DISTINCT
     r.relation AS relation,
     r.display_relation AS display_relation
 ORDER BY related_type, related_entity
-LIMIT 25
+LIMIT 500
 """.strip()
 
 
 def _run_cypher_query(question: str, cypher: str, message: str | None = None) -> dict[str, Any]:
     graph = _get_graph()
-    raw_rows = graph.query(cypher)
+    candidate_cypher = _ensure_candidate_limit(cypher)
+    raw_rows = graph.query(candidate_cypher)
+    reranked = _rerank_primekg_rows(question, raw_rows, DEFAULT_PRIMEKG_RESULT_LIMIT)
+    selected_rows = reranked["rows"]
     if message is None:
-        if raw_rows:
-            message = f"PrimeKG returned {len(raw_rows)} row(s)."
+        if selected_rows:
+            message = f"PrimeKG returned {len(selected_rows)} relevant row(s) from {len(raw_rows)} candidates."
         else:
             message = "PrimeKG returned no matching rows."
+
+    answer = message
+    try:
+        answer = _synthesize_primekg_answer(question, selected_rows)
+    except Exception:
+        pass
 
     return {
         "status": "ok",
         "question": question,
-        "answer": message,
+        "answer": answer,
         "cypher": cypher,
-        "raw_result": raw_rows,
+        "candidate_cypher": candidate_cypher,
+        "raw_result": selected_rows,
+        "all_candidates": raw_rows[:MAX_RERANK_CANDIDATES],
+        "candidate_count": reranked["candidate_count"],
+        "selected_count": reranked["selected_count"],
+        "ranking_method": reranked["ranking_method"],
+        "ranking_reason": reranked["ranking_reason"],
+        "selected_indices": reranked["selected_indices"],
+        "message": message,
     }
 
 
@@ -553,13 +787,7 @@ def query_primekg(question: str) -> dict[str, Any]:
                     "message": "PrimeKG did not generate a Cypher query.",
                 }
 
-            return {
-                "status": "ok",
-                "question": question,
-                "answer": result.get("result", ""),
-                "cypher": cypher,
-                "raw_result": result,
-            }
+            return _run_cypher_query(question, cypher)
         except Exception as exc:
             llm_error = str(exc).strip()
 
