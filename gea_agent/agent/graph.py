@@ -11,7 +11,6 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
 
-from gea_agent.agent.literature_agent import run_literature_agent
 from gea_agent.agent.state import AgentState
 from gea_agent.config import SETTINGS
 from gea_agent.tools.disease_literature import fetch_openalex_papers_and_genes, identify_disease_from_query
@@ -27,7 +26,9 @@ from gea_agent.tools.opentargets import (
     find_drugs_for_gene,
 )
 from gea_agent.tools.pubchem import query_pubchem_drug
+from gea_agent.tools.research_literature import run_publication_research_assistant_safe
 from gea_agent.tools.random_walk_restart import top_rwr_genes
+from gea_agent.tools.result_utils import normalize_tool_result, sanitize_exception_message, tool_error_result
 from gea_agent.tools.string_local_graph import build_weighted_graph_from_string_files, load_gene_to_string_id
 from gea_agent.tools.synthesizer import synthesize_technical_response
 from gea_agent.tools.primekg import query_primekg
@@ -689,6 +690,56 @@ def _parse_top_n_from_text(text: str | None) -> int | None:
     return value if value > 0 else None
 
 
+def _parse_deg_thresholds(text: str | None, args: dict[str, Any] | None = None) -> tuple[float, float]:
+    default_log2fold = 1.0
+    default_padj = 0.05
+    if isinstance(args, dict):
+        raw_log2fold = args.get("log2fold")
+        raw_padj = args.get("padj")
+        try:
+            if raw_log2fold not in (None, ""):
+                default_log2fold = abs(float(raw_log2fold))
+        except Exception:
+            pass
+        try:
+            if raw_padj not in (None, ""):
+                default_padj = max(0.0, min(1.0, float(raw_padj)))
+        except Exception:
+            pass
+
+    query = str(text or "")
+    patterns_log2fold = (
+        r"\blog2\s*fold(?:change)?\s*[=:<>]?\s*([0-9]*\.?[0-9]+)\b",
+        r"\blog2fc\s*[=:<>]?\s*([0-9]*\.?[0-9]+)\b",
+        r"\blfc\s*[=:<>]?\s*([0-9]*\.?[0-9]+)\b",
+    )
+    patterns_padj = (
+        r"\bpadj\s*[=:<>]?\s*([0-9]*\.?[0-9]+)\b",
+        r"\badjusted\s+p(?:[- ]?value)?\s*[=:<>]?\s*([0-9]*\.?[0-9]+)\b",
+        r"\bfdr\s*[=:<>]?\s*([0-9]*\.?[0-9]+)\b",
+    )
+
+    for pattern in patterns_log2fold:
+        match = re.search(pattern, query, flags=re.IGNORECASE)
+        if match:
+            try:
+                default_log2fold = abs(float(match.group(1)))
+                break
+            except Exception:
+                pass
+
+    for pattern in patterns_padj:
+        match = re.search(pattern, query, flags=re.IGNORECASE)
+        if match:
+            try:
+                default_padj = max(0.0, min(1.0, float(match.group(1))))
+                break
+            except Exception:
+                pass
+
+    return float(default_log2fold), float(default_padj)
+
+
 def _normalize_text_token(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
@@ -1133,8 +1184,13 @@ def _run_memory_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any
         else:
             answer_parts.append("No matching stored pathway, GO term, or DEG gene set could be resolved from the current state.")
 
+    status = "ok"
+    if not selected_term_name and not pathway_genes and not deg_genes and not intersection and not mentioned_genes:
+        status = "not_found"
+
+    answer_text = " ".join(answer_parts).strip()
     return {
-        "status": "ok",
+        "status": status,
         "analysis_arm": "memory_lookup",
         "direction": direction,
         "top_n": top_n,
@@ -1145,7 +1201,8 @@ def _run_memory_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any
         "mentioned_genes": mentioned_genes,
         "gene_membership": gene_membership,
         "requested_pathway_term": pathway_term,
-        "answer": " ".join(answer_parts).strip(),
+        "answer": answer_text,
+        "message": answer_text,
         "should_finalize": True,
     }
 
@@ -1217,13 +1274,16 @@ def _run_state_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
             parts.append(f"value={value_text}")
         answer_lines.append(", ".join(parts))
 
+    answer_text = "\n".join(answer_lines) if answer_lines else "No matching state fields were found."
     return {
-        "status": "ok",
+        "status": "ok" if inspections else "not_found",
         "analysis_arm": "state_lookup",
         "mode": mode,
         "fields": fields,
         "inspections": inspections,
-        "answer": "\n".join(answer_lines) if answer_lines else "No matching state fields were found.",
+        "answer": answer_text,
+        "message": answer_text,
+        "should_finalize": True,
     }
 
 
@@ -1236,7 +1296,9 @@ def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
             "status": "missing_field",
             "analysis_arm": "memory_slice",
             "answer": "No matching list-like state field was found.",
+            "message": "No matching list-like state field was found.",
             "selected_values": [],
+            "should_finalize": True,
         }
 
     raw_value = state.get(field)
@@ -1247,7 +1309,9 @@ def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
             "analysis_arm": "memory_slice",
             "field": field,
             "answer": f"{field} is not a non-empty list-like state field.",
+            "message": f"{field} is not a non-empty list-like state field.",
             "selected_values": [],
+            "should_finalize": True,
         }
 
     top_n = args.get("top_n")
@@ -1298,6 +1362,7 @@ def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
         "selected_values=" + json.dumps(_state_value_summary(selected_values, max_items=50), ensure_ascii=False, default=str)
     )
 
+    answer_text = ", ".join(answer_parts)
     return {
         "status": "ok",
         "analysis_arm": "memory_slice",
@@ -1308,7 +1373,9 @@ def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
         "selection_mode": selection_mode,
         "selected_values": selected_values,
         "selected_gene_candidates": _selected_values_to_gene_candidates(selected_values),
-        "answer": ", ".join(answer_parts),
+        "answer": answer_text,
+        "message": answer_text,
+        "should_finalize": True,
     }
 
 
@@ -1353,7 +1420,7 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
         value = result.get(key)
         if value not in (None, ""):
             payload[key] = value
-    for key in ("mode", "signature_count", "result_limit"):
+    for key in ("mode", "signature_count", "result_limit", "log2fold", "padj"):
         value = result.get(key)
         if value not in (None, ""):
             payload[key] = value
@@ -1550,6 +1617,9 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
         deg_analysis = result["deg_analysis"]
         payload["deg_analysis"] = {
             "status": deg_analysis.get("status"),
+            "log2fold": deg_analysis.get("log2fold"),
+            "padj": deg_analysis.get("padj"),
+            "thresholds_applied_post_hoc": deg_analysis.get("thresholds_applied_post_hoc"),
             "genes": deg_analysis.get("genes", [])[:20] if isinstance(deg_analysis.get("genes"), list) else [],
             "rows": len(deg_analysis.get("rows", [])) if isinstance(deg_analysis.get("rows"), list) else 0,
         }
@@ -2345,7 +2415,15 @@ def _run_fetch_openalex(state: AgentState, args: dict[str, Any]) -> dict[str, An
 
 def _run_research_literature(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     user_query = str(args.get("user_query") or args.get("text") or state.get("query") or "").strip()
-    result = run_literature_agent(user_query)
+    genes = args.get("genes")
+    if not isinstance(genes, list) or not genes:
+        genes = _literature_state_gene_candidates(state)
+    result = run_publication_research_assistant_safe(
+        user_query,
+        disease_name=str(args.get("disease_name") or state.get("disease_name") or state.get("memory_disease_name") or ""),
+        genes=genes,
+        top_n=int(args.get("top_n") or 20),
+    )
     result["analysis_arm"] = "research_literature"
     result["should_finalize"] = True
     return result
@@ -2358,10 +2436,14 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
     group_result = _run_extract_deg_groups(state, args)
     control_name = str(group_result.get("control_name") or "").strip()
     test_name = str(group_result.get("test_name") or "").strip()
+    query = str(args.get("text") or state.get("query") or "")
+    log2fold, padj = _parse_deg_thresholds(query, args)
     deg_result = run_deg_r_analysis(
         srp_ids=srp_ids,
         control_name=control_name,
         test_name=test_name,
+        log2fold=log2fold,
+        padj=padj,
     )
     deg_genes = deg_result.get("genes", [])
     deg_rows = deg_result.get("rows", [])
@@ -2369,6 +2451,18 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
     if isinstance(deg_rows, list):
         for row in deg_rows:
             if not isinstance(row, dict):
+                continue
+            try:
+                row_log2fc = abs(float(row.get("log2FoldChange")))
+            except Exception:
+                row_log2fc = None
+            try:
+                row_padj = float(row.get("pdj"))
+            except Exception:
+                row_padj = None
+            if row_log2fc is not None and row_log2fc < log2fold:
+                continue
+            if row_padj is not None and row_padj >= padj:
                 continue
             gene = row.get("hgnc_symbol") or row.get("external_gene_name") or row.get("Ensembl") or row.get("entrezgene_accession") or ""
             gene = str(gene).strip()
@@ -2383,6 +2477,18 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
                     "description": row.get("description"),
                 }
             )
+    deg_genes = [str(row.get("gene") or "").strip() for row in deg_gene_records if str(row.get("gene") or "").strip()]
+    kept_genes = set(deg_genes)
+    deg_result["rows"] = [
+        row for row in deg_rows
+        if isinstance(row, dict)
+        and str(
+            row.get("hgnc_symbol") or row.get("external_gene_name") or row.get("Ensembl") or row.get("entrezgene_accession") or ""
+        ).strip() in kept_genes
+    ] if isinstance(deg_rows, list) else []
+    deg_result["genes"] = deg_genes
+    deg_result["log2fold"] = log2fold
+    deg_result["padj"] = padj
     upregulated_genes = _genes_from_deg_records_by_direction(deg_gene_records, direction="up")
     downregulated_genes = _genes_from_deg_records_by_direction(deg_gene_records, direction="down")
     return {
@@ -2390,6 +2496,8 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
         "srp_ids": srp_ids,
         "control_name": control_name,
         "test_name": test_name,
+        "log2fold": log2fold,
+        "padj": padj,
         "deg_analysis": deg_result,
         "deg_genes": deg_genes,
         "upregulated_genes": upregulated_genes,
@@ -2852,6 +2960,16 @@ def _specialist_history_update(state: AgentState, tool_name: str, args: dict[str
     return {"tool_history": history}
 
 
+def _execute_tool_runner(tool_name: str, runner: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    try:
+        return normalize_tool_result(tool_name, runner())
+    except Exception as exc:
+        return tool_error_result(
+            tool_name,
+            f"{tool_name} failed: {sanitize_exception_message(exc)}",
+        )
+
+
 def _tool_observations(state: AgentState, call: dict[str, Any] | None, tool_name: str, result: dict[str, Any]) -> list[ToolMessage]:
     ai_message = _latest_ai_message(list(state.get("messages") or []))
     tool_calls = list(getattr(ai_message, "tool_calls", []) or [])
@@ -2892,12 +3010,12 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
         _trace_tool_call(tool_name)
 
         if tool_name == "deg_analysis":
-            result = _run_extract_srp_ids(state, args)
+            result = _execute_tool_runner("extract_srp_ids_from_text", lambda: _run_extract_srp_ids(state, args))
             update = _specialist_history_update(state, "extract_srp_ids_from_text", args, result)
             update = {**update, **result}
             state = {**state, **update}
 
-            result = _run_deg_analysis(state, args)
+            result = _execute_tool_runner("run_deg_r_analysis", lambda: _run_deg_analysis(state, args))
             update = _specialist_history_update(state, "run_deg_r_analysis", args, result)
             update = {**update, **result}
             update["memory_control_name"] = str(result.get("control_name") or "")
@@ -2911,26 +3029,26 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             return {**state, **result, "analysis_arm": "srp", "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "pathway":
-            result = _run_enrichr(state, args)
+            result = _execute_tool_runner("enrichr_pathways", lambda: _run_enrichr(state, args))
             update = _specialist_history_update(state, "enrichr_pathways", args, result)
             update = {**update, **result}
             update["memory_enrichr"] = _ensure_dict(result.get("enrichr"))
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "rwr_analysis":
-            build_result = _run_build_string_graph(state, args)
+            build_result = _execute_tool_runner("build_weighted_graph_from_string_files", lambda: _run_build_string_graph(state, args))
             update = _specialist_history_update(state, "build_weighted_graph_from_string_files", args, build_result)
             update = {**update, **build_result}
             state = {**state, **update}
 
-            rwr_result = _run_top_rwr(state, args)
+            rwr_result = _execute_tool_runner("top_rwr_genes", lambda: _run_top_rwr(state, args))
             update = _specialist_history_update(state, "top_rwr_genes", args, rwr_result)
             update = {**update, **rwr_result}
             state = {**state, **update}
             return {**state, **rwr_result, "messages": _tool_observations(state, call, tool_name, rwr_result)}
 
         if tool_name == "visualize":
-            result = _run_visualize(state, args)
+            result = _execute_tool_runner("visualize", lambda: _run_visualize(state, args))
             update = _specialist_history_update(state, "visualize", args, result)
             update = {**update, **result}
             update["visualization_result"] = result
@@ -2939,64 +3057,64 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "memory_lookup":
-            result = _run_memory_lookup(state, args)
+            result = _execute_tool_runner("memory_lookup", lambda: _run_memory_lookup(state, args))
             update = _specialist_history_update(state, "memory_lookup", args, result)
             update = {**update, **result}
             update["memory_lookup_result"] = result
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "state_lookup":
-            result = _run_state_lookup(state, args)
+            result = _execute_tool_runner("state_lookup", lambda: _run_state_lookup(state, args))
             update = _specialist_history_update(state, "state_lookup", args, result)
             update = {**update, **result}
             update["state_lookup_result"] = result
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "memory_slice":
-            result = _run_memory_slice(state, args)
+            result = _execute_tool_runner("memory_slice", lambda: _run_memory_slice(state, args))
             update = _specialist_history_update(state, "memory_slice", args, result)
             update = {**update, **result}
             update["memory_slice_result"] = result
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "literature":
-            disease_result = _run_identify_disease(state, args)
+            disease_result = _execute_tool_runner("identify_disease_from_query", lambda: _run_identify_disease(state, args))
             update = _specialist_history_update(state, "identify_disease_from_query", args, disease_result)
             update = {**update, **disease_result}
             state = {**state, **update}
 
-            openalex_result = _run_fetch_openalex(state, args)
+            openalex_result = _execute_tool_runner("fetch_openalex_papers_and_genes", lambda: _run_fetch_openalex(state, args))
             update = _specialist_history_update(state, "fetch_openalex_papers_and_genes", args, openalex_result)
             update = {**update, **openalex_result}
             state = {**state, **update}
 
-            gene_result = _run_extract_genes(state, args)
+            gene_result = _execute_tool_runner("extract_genes_from_text", lambda: _run_extract_genes(state, args))
             update = _specialist_history_update(state, "extract_genes_from_text", args, gene_result)
             update = {**update, **gene_result}
             state = {**state, **update}
             return {**state, **openalex_result, "messages": _tool_observations(state, call, tool_name, openalex_result)}
 
         if tool_name == "research_literature":
-            result = _run_research_literature(state, args)
+            result = _execute_tool_runner("research_literature", lambda: _run_research_literature(state, args))
             update = _specialist_history_update(state, "run_literature_agent", args, result)
             update = {**update, **result}
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "identify_disease_from_query":
-            result = _run_identify_disease(state, args)
+            result = _execute_tool_runner("identify_disease_from_query", lambda: _run_identify_disease(state, args))
             update = _specialist_history_update(state, "identify_disease_from_query", args, result)
             update = {**update, **result}
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "primekg_query":
-            result = _run_primekg_query(state, args)
+            result = _execute_tool_runner("primekg_query", lambda: _run_primekg_query(state, args))
             update = _specialist_history_update(state, "primekg_query", args, result)
             update = {**update, **result}
             update["primekg_result"] = result
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "opentargets_association":
-            result = _run_opentargets_association(state, args)
+            result = _execute_tool_runner("opentargets_association", lambda: _run_opentargets_association(state, args))
             update = _specialist_history_update(state, "opentargets_association", args, result)
             update = {**update, **result}
             update["opentargets_result"] = result
@@ -3009,7 +3127,7 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "l1000cds2_query":
-            result = _run_l1000cds2_query(state, args)
+            result = _execute_tool_runner("l1000cds2_query", lambda: _run_l1000cds2_query(state, args))
             update = _specialist_history_update(state, "l1000cds2_query", args, result)
             update = {**update, **result}
             update["analysis_arm"] = "l1000cds2"
@@ -3019,7 +3137,7 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "pubchem_drug_lookup":
-            result = _run_pubchem_drug_lookup(state, args)
+            result = _execute_tool_runner("pubchem_drug_lookup", lambda: _run_pubchem_drug_lookup(state, args))
             update = _specialist_history_update(state, "pubchem_drug_lookup", args, result)
             update = {**update, **result}
             update["analysis_arm"] = "pubchem"
@@ -3343,10 +3461,12 @@ TOOL_SCHEMAS = [
         """,
         return_direct=False,
     )(
-        lambda srp_ids=None, control_name=None, test_name=None, text=None: {
+        lambda srp_ids=None, control_name=None, test_name=None, log2fold=1.0, padj=0.05, text=None: {
             "srp_ids": srp_ids,
             "control_name": control_name,
             "test_name": test_name,
+            "log2fold": log2fold,
+            "padj": padj,
             "text": text,
         }
     ),

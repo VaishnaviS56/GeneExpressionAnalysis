@@ -105,6 +105,8 @@ def run_deg_r_analysis(
     srp_ids: list[str] | None = None,
     control_name: str | None = None,
     test_name: str | None = None,
+    log2fold: float = 1.0,
+    padj: float = 0.05,
 ) -> dict[str, Any]:
     """
     Run the hard-coded R DEG workflow and parse the resulting CSV.
@@ -128,6 +130,8 @@ def run_deg_r_analysis(
             "script_path": str(script_path),
             "supporting_files_dir": str(supporting_dir),
             "output_csv_path": str(output_path),
+            "log2fold": float(log2fold),
+            "padj": float(padj),
             "genes": [],
             "rows": [],
             "message": "DEG R paths are still placeholders.",
@@ -139,6 +143,8 @@ def run_deg_r_analysis(
             "script_path": str(script_path),
             "supporting_files_dir": str(supporting_dir),
             "output_csv_path": str(output_path),
+            "log2fold": float(log2fold),
+            "padj": float(padj),
             "genes": [],
             "rows": [],
             "message": "No SRP ids were provided to the DEG runner.",
@@ -152,6 +158,8 @@ def run_deg_r_analysis(
             "script_path": str(script_path),
             "supporting_files_dir": str(supporting_dir),
             "output_csv_path": str(output_path),
+            "log2fold": float(log2fold),
+            "padj": float(padj),
             "genes": [],
             "rows": [],
             "message": "Both control_name and test_name are required for the DEG runner.",
@@ -163,6 +171,8 @@ def run_deg_r_analysis(
             "script_path": str(script_path),
             "supporting_files_dir": str(supporting_dir),
             "output_csv_path": str(output_path),
+            "log2fold": float(log2fold),
+            "padj": float(padj),
             "genes": [],
             "rows": [],
             "message": f"Could not resolve the R executable from: {SETTINGS.rscript_executable}",
@@ -174,6 +184,8 @@ def run_deg_r_analysis(
             "script_path": str(script_path),
             "supporting_files_dir": str(supporting_dir),
             "output_csv_path": str(output_path),
+            "log2fold": float(log2fold),
+            "padj": float(padj),
             "genes": [],
             "rows": [],
             "message": "DEG R script was not found.",
@@ -188,7 +200,7 @@ def run_deg_r_analysis(
             f"\"{control_name}\" \"{test_name}\" {' '.join(str(s) for s in srp_ids or [])}"
         )
         subprocess.run(
-            [executable, str(script_path), control_name, test_name, *[str(s) for s in srp_ids or []]],
+            [executable, str(script_path), control_name, test_name, str(log2fold), str(padj), *[str(s) for s in srp_ids or []]],
             cwd=str(supporting_dir),
             check=True,
             capture_output=True,
@@ -200,6 +212,8 @@ def run_deg_r_analysis(
             "script_path": str(script_path),
             "supporting_files_dir": str(supporting_dir),
             "output_csv_path": str(output_path),
+            "log2fold": float(log2fold),
+            "padj": float(padj),
             "genes": [],
             "rows": [],
             "message": f"Could not find the Rscript executable: {exc}",
@@ -216,9 +230,19 @@ def run_deg_r_analysis(
             "script_path": str(script_path),
             "supporting_files_dir": str(supporting_dir),
             "output_csv_path": str(output_path),
+            "log2fold": float(log2fold),
+            "padj": float(padj),
             "genes": [],
             "rows": [],
             "message": (exc.stderr or exc.stdout or "DEG R script failed."),
         }
 
-    return _read_deg_csv(output_path)
+    result = _read_deg_csv(output_path)
+    result["log2fold"] = float(log2fold)
+    result["padj"] = float(padj)
+    result["thresholds_applied_post_hoc"] = True
+    result["message"] = (
+        str(result.get("message") or "").strip()
+        + " Requested log2fold/padj thresholds were applied in Python after the R script completed because the script itself hardcodes those values."
+    ).strip()
+    return result

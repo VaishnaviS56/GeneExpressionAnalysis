@@ -38,6 +38,9 @@ def _compact_deg_analysis(deg_analysis: dict[str, Any] | None) -> dict[str, Any]
     return {
         "status": deg_analysis.get("status"),
         "n": len(rows) if isinstance(rows, list) else 0,
+        "log2fold": deg_analysis.get("log2fold"),
+        "padj": deg_analysis.get("padj"),
+        "thresholds_applied_post_hoc": deg_analysis.get("thresholds_applied_post_hoc"),
         "genes": genes[:10] if isinstance(genes, list) else [],
         "rows": compact_rows,
     }

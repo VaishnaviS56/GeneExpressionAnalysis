@@ -23,10 +23,14 @@ if (length(args) < 3) {
 
 control_name <- args[2]
 test_name <- args[1]
-target_srp <- args[-c(1, 2)]
+log2fold <- as.numeric(args[3])
+pval <- as.numeric(args[4])
+target_srp <- args[-c(1, 2, 3, 4)]
 
 cat("Control:", control_name, "\n")
 cat("Test:", test_name, "\n")
+cat("Log2FoldChange:", log2fold, "\n")
+cat("Padj:", pval, "\n")
 cat("SRP IDs:\n")
 print(target_srp)
 
@@ -314,9 +318,9 @@ annots <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id",
 
 zz <- merge(zz, annots, by.x="Ensembl", by.y="ensembl_gene_id")
 
-fold.cutoff=1
+fold.cutoff=log2fold
 df<-zz[which(((zz$log2FoldChange>fold.cutoff) | 
-                (zz$log2FoldChange<(fold.cutoff*-1))) & (zz$padj<0.05)),]
+                (zz$log2FoldChange<(fold.cutoff*-1))) & (zz$padj<pval)),]
 
 write.csv(df[,c("Ensembl","hgnc_symbol","entrezgene_id", "entrezgene_accession",
                 "external_gene_name", "description","log2FoldChange","pvalue",

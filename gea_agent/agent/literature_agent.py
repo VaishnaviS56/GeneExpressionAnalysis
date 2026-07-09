@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gea_agent.tools.llm import get_llm
+from gea_agent.tools.research_literature import run_publication_research_assistant_safe
 
 
 LITERATURE_SYSTEM_PROMPT = (
@@ -21,23 +21,16 @@ LITERATURE_SYSTEM_PROMPT = (
 def run_literature_agent(user_query: str) -> dict[str, Any]:
     print("running literature agent...")
     query = str(user_query or "").strip()
-    llm = get_llm()
-    response = llm.invoke(
-        [
-            ("system", LITERATURE_SYSTEM_PROMPT),
-            (
-                "user",
-                (
-                    "User query:\n"
-                    f"{query}\n\n"
-                    "Please answer the query and provide a `References:` section for the answer."
-                ),
-            ),
-        ]
-    )
-    answer = str(getattr(response, "content", "") or "").strip()
+    result = run_publication_research_assistant_safe(query)
+    answer = str(result.get("answer") or "").strip()
     return {
         "answer": answer,
+        "status": result.get("status", "ok"),
+        "message": result.get("message", ""),
+        "literature_references": result.get("literature_references", []),
+        "literature_key_points": result.get("literature_key_points", []),
+        "literature_source_status": result.get("literature_source_status", {}),
+        "literature_summary": result.get("literature_summary", ""),
         "meta": {
             "analysis_arm": "literature",
             "agent_type": "literature",

@@ -35,7 +35,7 @@ def build_pyvis_html(
     if graph.number_of_nodes() == 0:
         raise ValueError("Cannot visualize an empty graph.")
 
-    net = Network(height=height, width=width, directed=directed, notebook=notebook, bgcolor="#0f172a", font_color="#e2e8f0")
+    net = Network(height=height, width=width, directed=directed, notebook=notebook, bgcolor="#FAF9FA", font_color="#000000")
     # net.heading = title
 
     seed_gene_set = {str(node).strip().upper() for node in (seed_genes or []) if str(node).strip()}

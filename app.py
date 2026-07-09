@@ -222,8 +222,14 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
         st.subheader("Differentially expressed genes")
         status = deg_analysis.get("status")
         message = deg_analysis.get("message")
+        if deg_analysis.get("log2fold") not in (None, "") or deg_analysis.get("padj") not in (None, ""):
+            st.caption(
+                f"Used thresholds: log2fold={deg_analysis.get('log2fold', 1.0)}, padj={deg_analysis.get('padj', 0.05)}"
+            )
         if status and status != "ok":
             st.info(str(message or "DEG output is not ready yet."))
+        elif isinstance(message, str) and message.strip():
+            st.caption(message)
         if isinstance(genes, list) and genes:
             st.caption(f"{len(genes)} genes detected from the DEG output.")
         if isinstance(rows, list) and rows:
