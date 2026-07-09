@@ -85,3 +85,12 @@ export function sendMessage(chatId, content) {
     body: JSON.stringify({ content }),
   })
 }
+
+export function buildAssetUrl(path) {
+  const token = getToken()
+  const params = new URLSearchParams({ path })
+  if (token) {
+    params.set('token', token)
+  }
+  return `${BASE_URL}/api/assets?${params.toString()}`
+}

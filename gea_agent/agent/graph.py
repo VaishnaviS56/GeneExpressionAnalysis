@@ -2285,7 +2285,12 @@ def _run_primekg_query(
         or ""
     )
 
-    return query_primekg(question)
+    focus_genes = [
+        str(value).strip().upper()
+        for value in extract_genes_from_text(question, mode="strict")
+        if str(value).strip()
+    ]
+    return query_primekg(question, focus_genes=focus_genes)
 
 def _run_fetch_openalex(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     query = str(state.get("query") or args.get("question") or args.get("text") or "")
@@ -2709,8 +2714,10 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         result = build_network_visualization(
             graph,
             output_path=str(args.get("output_path") or "pyvis_network.html"),
-            select_top_degree=int(args.get("select_top_degree") or max(len(allowed_nodes), 20) or 20),
+            select_top_degree=None,
             allowed_nodes=allowed_nodes,
+            seed_genes=seed_genes,
+            rwr_genes=top_targets,
         )
         result["visualization_type"] = "network"
         result["seed_genes"] = seed_genes
@@ -2775,6 +2782,43 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         "message": f"Unsupported visualization type: {visualization_type}",
         "visualization_type": visualization_type,
     }
+
+
+def _visualization_answer(result: dict[str, Any]) -> str:
+    visualization_type = str(result.get("visualization_type") or "").strip().lower()
+    status = str(result.get("status") or "").strip().lower()
+    if status != "ok":
+        return str(result.get("message") or "Visualization could not be generated.").strip()
+
+    if visualization_type == "network":
+        node_count = int(result.get("visualized_node_count") or 0)
+        edge_count = int(result.get("visualized_edge_count") or 0)
+        seed_count = len(result.get("seed_genes") or [])
+        target_count = len(result.get("top_targets") or [])
+        html_path = str(result.get("pyvis_html_path") or "").strip()
+        parts = [
+            f"Built an interactive network visualization with {node_count} nodes and {edge_count} edges.",
+            f"Seed genes highlighted: {seed_count}.",
+            f"RWR result genes highlighted: {target_count}.",
+        ]
+        if html_path:
+            parts.append(f"Output saved to: {html_path}.")
+        return " ".join(parts)
+
+    if visualization_type == "kegg":
+        path = str(result.get("kegg_pathway_path") or "").strip()
+        message = str(result.get("message") or "Built KEGG pathway visualization.").strip()
+        return f"{message} Output saved to: {path}." if path else message
+
+    if visualization_type == "volcano":
+        path = str(result.get("volcano_plot_path") or "").strip()
+        points = int(result.get("points") or 0)
+        message = str(result.get("message") or "Built DEG volcano plot.").strip()
+        detail = f" Points plotted: {points}." if points else ""
+        suffix = f" Output saved to: {path}." if path else ""
+        return f"{message}{detail}{suffix}"
+
+    return str(result.get("message") or "Visualization generated successfully.").strip()
 
 
 def _run_synthesize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
@@ -2890,6 +2934,8 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             update = _specialist_history_update(state, "visualize", args, result)
             update = {**update, **result}
             update["visualization_result"] = result
+            update["answer"] = _visualization_answer(result)
+            update["should_finalize"] = True
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "memory_lookup":

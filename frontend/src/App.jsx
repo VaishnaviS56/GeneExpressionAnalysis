@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  buildAssetUrl,
   createChat,
   fetchChats,
   fetchMessages,
@@ -36,9 +37,7 @@ function formatNumber(value) {
   const num = Number(value)
   if (Number.isNaN(num)) return String(value)
   if (num === 0) return '0'
-  if (Math.abs(num) < 0.001 || Math.abs(num) >= 1000) {
-    return num.toExponential(2)
-  }
+  if (Math.abs(num) < 0.001 || Math.abs(num) >= 1000) return num.toExponential(2)
   return num.toFixed(4)
 }
 
@@ -75,6 +74,37 @@ function formatChatMode(chat, technicalMeta) {
   return formatArm(chat?.analysis_arm || technicalMeta?.analysis_arm || 'general')
 }
 
+function getRunMetrics(meta) {
+  if (!meta || typeof meta !== 'object') return []
+
+  const metrics = []
+  const degRows = Array.isArray(meta.deg_gene_records) ? meta.deg_gene_records.length : 0
+  const pathwayLibraries = meta.enrichr && typeof meta.enrichr === 'object' && meta.enrichr.libraries && typeof meta.enrichr.libraries === 'object'
+    ? Object.keys(meta.enrichr.libraries).length
+    : 0
+  const rwrHits = Array.isArray(meta.rwr_genes) ? meta.rwr_genes.length : 0
+  const graphNodes = meta.network && typeof meta.network === 'object' ? Number(meta.network.nodes || 0) : 0
+  const graphEdges = meta.network && typeof meta.network === 'object' ? Number(meta.network.edges || 0) : 0
+  const literatureHits = Array.isArray(meta.ranked_openalex_papers)
+    ? meta.ranked_openalex_papers.length
+    : Array.isArray(meta.openalex_papers)
+      ? meta.openalex_papers.length
+      : 0
+  const l1000Hits = meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' && Array.isArray(meta.l1000cds2_result.top_drugs)
+    ? meta.l1000cds2_result.top_drugs.length
+    : 0
+
+  if (degRows) metrics.push({ label: 'DEG rows', value: degRows })
+  if (pathwayLibraries) metrics.push({ label: 'Libraries', value: pathwayLibraries })
+  if (rwrHits) metrics.push({ label: 'RWR hits', value: rwrHits })
+  if (graphNodes) metrics.push({ label: 'Nodes', value: graphNodes })
+  if (graphEdges) metrics.push({ label: 'Edges', value: graphEdges })
+  if (literatureHits) metrics.push({ label: 'Papers', value: literatureHits })
+  if (l1000Hits) metrics.push({ label: 'L1000 hits', value: l1000Hits })
+
+  return metrics
+}
+
 function renderKvList(data, keyPrefix) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null
   const entries = Object.entries(data)
@@ -102,9 +132,7 @@ function renderInlineMarkdown(text, keyPrefix) {
   for (const match of value.matchAll(pattern)) {
     const token = match[0]
     const start = match.index ?? 0
-    if (start > lastIndex) {
-      nodes.push(value.slice(lastIndex, start))
-    }
+    if (start > lastIndex) nodes.push(value.slice(lastIndex, start))
 
     if (token.startsWith('[')) {
       const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
@@ -147,10 +175,7 @@ function renderInlineMarkdown(text, keyPrefix) {
     matchIndex += 1
   }
 
-  if (lastIndex < value.length) {
-    nodes.push(value.slice(lastIndex))
-  }
-
+  if (lastIndex < value.length) nodes.push(value.slice(lastIndex))
   return nodes.length ? nodes : [value]
 }
 
@@ -223,11 +248,7 @@ function parseMarkdownBlocks(content) {
       flushParagraph()
       flushList()
       flushQuote()
-      blocks.push({
-        type: 'heading',
-        level: headingMatch[1].length,
-        text: headingMatch[2].trim(),
-      })
+      blocks.push({ type: 'heading', level: headingMatch[1].length, text: headingMatch[2].trim() })
       continue
     }
 
@@ -322,7 +343,7 @@ function MarkdownContent({ content }) {
 
 function MessageBubble({ message }) {
   return (
-    <article className={`message ${message.role}`}>
+    <article className={`message ${message.role} ${message.pending ? 'pending' : ''}`}>
       <div className="message-meta-row">
         <div className="message-role">{message.role === 'assistant' ? 'Agent' : 'You'}</div>
         {message.created_at && <div className="message-time">{formatTime(message.created_at)}</div>}
@@ -334,29 +355,51 @@ function MessageBubble({ message }) {
   )
 }
 
-function getRunMetrics(meta) {
-  if (!meta || typeof meta !== 'object') return []
+function LoadingState({ label = 'Loading workspace' }) {
+  return (
+    <div className="loading-state" aria-live="polite">
+      <div className="loading-orb">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="loading-copy">{label}</div>
+    </div>
+  )
+}
 
-  const metrics = []
-  const degRows = Array.isArray(meta.deg_gene_records) ? meta.deg_gene_records.length : 0
-  const pathwayLibraries = meta.enrichr && typeof meta.enrichr === 'object' && meta.enrichr.libraries && typeof meta.enrichr.libraries === 'object'
-    ? Object.keys(meta.enrichr.libraries).length
-    : 0
-  const rwrHits = Array.isArray(meta.rwr_genes) ? meta.rwr_genes.length : 0
-  const graphNodes = meta.network && typeof meta.network === 'object' ? Number(meta.network.nodes || 0) : 0
-  const graphEdges = meta.network && typeof meta.network === 'object' ? Number(meta.network.edges || 0) : 0
-  const l1000Hits = meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' && Array.isArray(meta.l1000cds2_result.top_drugs)
-    ? meta.l1000cds2_result.top_drugs.length
-    : 0
+function SectionCard({ title, subtitle, children }) {
+  return (
+    <section className="technical-card">
+      <div className="section-heading">
+        <h3>{title}</h3>
+        {subtitle ? <p>{subtitle}</p> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
 
-  if (degRows) metrics.push({ label: 'DEG rows', value: degRows })
-  if (pathwayLibraries) metrics.push({ label: 'Libraries', value: pathwayLibraries })
-  if (rwrHits) metrics.push({ label: 'RWR hits', value: rwrHits })
-  if (graphNodes) metrics.push({ label: 'Nodes', value: graphNodes })
-  if (graphEdges) metrics.push({ label: 'Edges', value: graphEdges })
-  if (l1000Hits) metrics.push({ label: 'L1000 hits', value: l1000Hits })
+function ArtifactPreview({ label, path, mode }) {
+  if (!path) return null
+  const src = buildAssetUrl(path)
 
-  return metrics
+  return (
+    <div className="artifact-block">
+      <div className="artifact-head">
+        <div>
+          <div className="artifact-label">{label}</div>
+          <div className="artifact-path">{path}</div>
+        </div>
+        <a className="ghost mini" href={src} rel="noreferrer" target="_blank">Open</a>
+      </div>
+      {mode === 'html' ? (
+        <iframe className="artifact-frame" src={src} title={label} />
+      ) : (
+        <img className="artifact-image" src={src} alt={label} loading="lazy" />
+      )}
+    </div>
+  )
 }
 
 function TechnicalPanel({ meta }) {
@@ -367,7 +410,7 @@ function TechnicalPanel({ meta }) {
           <div className="technical-hero placeholder">
             <div className="eyebrow">Technical results</div>
             <h3>No technical output yet</h3>
-            <p>Run a DEG, enrichment, RWR, or disease query and the structured results will appear here.</p>
+            <p>Run a DEG, enrichment, RWR, literature, or drug lookup query and the structured outputs will land here.</p>
           </div>
         </section>
       </aside>
@@ -383,7 +426,15 @@ function TechnicalPanel({ meta }) {
   const primeKg = meta.primekg_result && typeof meta.primekg_result === 'object' ? meta.primekg_result : null
   const l1000 = meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' ? meta.l1000cds2_result : null
   const pubchem = meta.pubchem_result && typeof meta.pubchem_result === 'object' ? meta.pubchem_result : null
+  const memoryLookup = meta.memory_lookup_result && typeof meta.memory_lookup_result === 'object' ? meta.memory_lookup_result : null
+  const memorySlice = meta.memory_slice_result && typeof meta.memory_slice_result === 'object' ? meta.memory_slice_result : null
   const toolHistory = Array.isArray(meta.tool_history) ? meta.tool_history : []
+  const rankedPapers = Array.isArray(meta.ranked_openalex_papers) ? meta.ranked_openalex_papers.slice(0, 5) : []
+  const scannedPapers = Array.isArray(meta.openalex_papers) ? meta.openalex_papers.slice(0, 5) : []
+  const literaturePoints = Array.isArray(meta.literature_key_points) ? meta.literature_key_points.slice(0, 5) : []
+  const literatureReferences = Array.isArray(meta.literature_references) ? meta.literature_references.slice(0, 8) : []
+  const network = meta.network && typeof meta.network === 'object' ? meta.network : null
+  const topDegree = Array.isArray(network?.top_degree) ? network.top_degree.slice(0, 10) : []
   const pyvisHtmlPath = typeof meta.pyvis_html_path === 'string' ? meta.pyvis_html_path : ''
   const keggPath = typeof meta.kegg_pathway_path === 'string' ? meta.kegg_pathway_path : ''
   const volcanoPath = typeof meta.volcano_plot_path === 'string' ? meta.volcano_plot_path : ''
@@ -399,7 +450,7 @@ function TechnicalPanel({ meta }) {
             <h3>{formatArm(meta.analysis_arm)}</h3>
             <div className="chat-badge">{formatArm(meta.analysis_arm)}</div>
           </div>
-          <p>Structured outputs from the current chat stay here so the main answer can remain readable.</p>
+          <p>Structured outputs stay anchored here so the answer thread can stay readable.</p>
           {runMetrics.length > 0 && (
             <div className="metric-grid">
               {runMetrics.map((metric) => (
@@ -412,9 +463,118 @@ function TechnicalPanel({ meta }) {
           )}
         </div>
 
+        {(pyvisHtmlPath || keggPath || volcanoPath) && (
+          <SectionCard title="Visual outputs" subtitle="Generated artifacts are embedded here, matching the Streamlit workspace.">
+            <div className="artifact-grid">
+              <ArtifactPreview label="Network visualization" mode="html" path={pyvisHtmlPath} />
+              <ArtifactPreview label="KEGG pathway" mode="image" path={keggPath} />
+              <ArtifactPreview label="Volcano plot" mode="image" path={volcanoPath} />
+            </div>
+          </SectionCard>
+        )}
+
+        {network && (network.nodes || network.edges || topDegree.length > 0) && (
+          <SectionCard title="Network summary" subtitle="Graph context from the current analysis run.">
+            <div className="summary-pill-grid">
+              <div className="summary-pill">
+                <span>Nodes</span>
+                <strong>{network.nodes || 0}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>Edges</span>
+                <strong>{network.edges || 0}</strong>
+              </div>
+            </div>
+            {topDegree.length > 0 && (
+              <div className="technical-table">
+                <div className="technical-row technical-head technical-row-two">
+                  <span>Gene</span>
+                  <span>Degree</span>
+                </div>
+                {topDegree.map((row, index) => (
+                  <div className="technical-row technical-row-two" key={`${row.gene || 'degree'}-${index}`}>
+                    <span>{row.gene || '-'}</span>
+                    <span>{formatValue(row.degree)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        )}
+
+        {(rankedPapers.length > 0 || scannedPapers.length > 0 || literaturePoints.length > 0 || literatureReferences.length > 0 || meta.literature_summary) && (
+          <SectionCard
+            title="Literature results"
+            subtitle={meta.disease_name ? `Context: ${meta.disease_name}` : 'Evidence gathered from literature retrieval.'}
+          >
+            {meta.literature_summary ? <p>{meta.literature_summary}</p> : null}
+
+            {literaturePoints.length > 0 && (
+              <div className="bullet-panel">
+                <div className="trace-label">Key points</div>
+                <ul>
+                  {literaturePoints.map((row, index) => (
+                    <li key={`lit-point-${index}`}>
+                      {row.point || '-'}
+                      {Array.isArray(row.paper_ids) && row.paper_ids.length > 0 ? ` (${row.paper_ids.join(', ')})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {rankedPapers.length > 0 && (
+              <div className="technical-table">
+                <div className="technical-row technical-head technical-row-lit">
+                  <span>Title</span>
+                  <span>Year</span>
+                  <span>Relevance</span>
+                  <span>Reason</span>
+                </div>
+                {rankedPapers.map((paper, index) => (
+                  <div className="technical-row technical-row-lit" key={`${paper.title || 'paper'}-${index}`}>
+                    <span>{paper.title || '-'}</span>
+                    <span>{formatValue(paper.year)}</span>
+                    <span>{formatNumber(paper.relevance)}</span>
+                    <span>{paper.reason || '-'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!rankedPapers.length && scannedPapers.length > 0 && (
+              <div className="technical-table">
+                <div className="technical-row technical-head technical-row-three">
+                  <span>Title</span>
+                  <span>Year</span>
+                  <span>Source</span>
+                </div>
+                {scannedPapers.map((paper, index) => (
+                  <div className="technical-row technical-row-three" key={`${paper.title || 'scan'}-${index}`}>
+                    <span>{paper.title || '-'}</span>
+                    <span>{formatValue(paper.year)}</span>
+                    <span>{paper.source || '-'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {literatureReferences.length > 0 && (
+              <div className="technical-table">
+                <div className="trace-label">References</div>
+                {literatureReferences.map((row, index) => (
+                  <div className="reference-row" key={`${row.paper_id || 'ref'}-${index}`}>
+                    <strong>{row.title || 'Untitled reference'}</strong>
+                    <span>{[row.source, row.year, row.pmid ? `PMID ${row.pmid}` : '', row.doi ? `DOI ${row.doi}` : ''].filter(Boolean).join(' | ')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        )}
+
         {degRows.length > 0 && (
-          <div className="technical-card">
-            <h3>DEG genes</h3>
+          <SectionCard title="Differential expression" subtitle="Top DEG rows from the current comparison.">
             <div className="technical-table">
               <div className="technical-row technical-head">
                 <span>Gene</span>
@@ -431,13 +591,12 @@ function TechnicalPanel({ meta }) {
                 </div>
               ))}
             </div>
-          </div>
+          </SectionCard>
         )}
 
         {Object.entries(enrichrLibs).map(([library, terms]) => (
           Array.isArray(terms) && terms.length > 0 ? (
-            <div className="technical-card" key={library}>
-              <h3>{library}</h3>
+            <SectionCard key={library} title={library} subtitle="Pathway enrichment results.">
               <div className="technical-table">
                 <div className="technical-row technical-head technical-row-wide">
                   <span>Term</span>
@@ -456,15 +615,14 @@ function TechnicalPanel({ meta }) {
                   </div>
                 ))}
               </div>
-            </div>
+            </SectionCard>
           ) : null
         ))}
 
         {rwrRows.length > 0 && (
-          <div className="technical-card">
-            <h3>RWR targets</h3>
+          <SectionCard title="Random Walk with Restart" subtitle="Ranked targets from the stored or current seed genes.">
             <div className="technical-table">
-              <div className="technical-row technical-head">
+              <div className="technical-row technical-head technical-row-two">
                 <span>Gene</span>
                 <span>Score</span>
               </div>
@@ -475,18 +633,15 @@ function TechnicalPanel({ meta }) {
                 </div>
               ))}
             </div>
-          </div>
+          </SectionCard>
         )}
 
         {l1000 && (
-          <div className="technical-card">
-            <h3>L1000CDS2 matches</h3>
-            {requestedCellLines.length > 0 && (
-              <p><strong>Cell lines:</strong> {requestedCellLines.join(', ')}</p>
-            )}
+          <SectionCard title="L1000CDS2 matches" subtitle="Top compound matches from the current reversal search.">
+            {requestedCellLines.length > 0 ? <p><strong>Cell lines:</strong> {requestedCellLines.join(', ')}</p> : null}
             {Array.isArray(l1000.top_drugs) && l1000.top_drugs.length > 0 ? (
               <div className="technical-table">
-                <div className="technical-row technical-head technical-row-wide">
+                <div className="technical-row technical-head technical-row-drug">
                   <span>Drug</span>
                   <span>Rank</span>
                   <span>Score</span>
@@ -494,7 +649,7 @@ function TechnicalPanel({ meta }) {
                   <span>Cell lines</span>
                 </div>
                 {l1000.top_drugs.slice(0, 10).map((row, index) => (
-                  <div className="technical-row technical-row-wide" key={`${row.name || 'drug'}-${index}`}>
+                  <div className="technical-row technical-row-drug" key={`${row.name || 'drug'}-${index}`}>
                     <span>{row.name || '-'}</span>
                     <span>{formatValue(row.best_rank)}</span>
                     <span>{formatNumber(row.best_score)}</span>
@@ -506,24 +661,36 @@ function TechnicalPanel({ meta }) {
             ) : (
               <p>{l1000.message || 'No L1000CDS2 results available.'}</p>
             )}
-          </div>
+          </SectionCard>
         )}
 
         {openTargets && (
-          <div className="technical-card">
-            <h3>OpenTargets</h3>
-            <p><strong>Gene:</strong> {openTargets.gene || '-'}</p>
-            <p><strong>Disease:</strong> {openTargets.disease || '-'}</p>
-            <p><strong>Associated:</strong> {String(openTargets.associated)}</p>
-            <p><strong>Score:</strong> {formatNumber(openTargets.association_score)}</p>
-          </div>
+          <SectionCard title="OpenTargets" subtitle="Association summary from the current OpenTargets lookup.">
+            <div className="summary-pill-grid">
+              <div className="summary-pill">
+                <span>Gene</span>
+                <strong>{openTargets.gene || '-'}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>Disease</span>
+                <strong>{openTargets.disease || '-'}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>Associated</span>
+                <strong>{String(openTargets.associated)}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>Score</span>
+                <strong>{formatNumber(openTargets.association_score)}</strong>
+              </div>
+            </div>
+          </SectionCard>
         )}
 
         {primeKg && (
-          <div className="technical-card">
-            <h3>PrimeKG</h3>
-            {primeKg.answer && <p><strong>Answer:</strong> {primeKg.answer}</p>}
-            {primeKg.cypher && <pre className="trace-code">{primeKg.cypher}</pre>}
+          <SectionCard title="PrimeKG" subtitle="Knowledge graph answer and returned rows.">
+            {primeKg.answer ? <p><strong>Answer:</strong> {primeKg.answer}</p> : null}
+            {primeKg.cypher ? <pre className="trace-code">{primeKg.cypher}</pre> : null}
             {Array.isArray(primeKg.rows) && primeKg.rows.length > 0 && (
               <div className="trace-result-block">
                 <div className="trace-label">Rows</div>
@@ -534,34 +701,57 @@ function TechnicalPanel({ meta }) {
                 ))}
               </div>
             )}
-          </div>
+          </SectionCard>
         )}
 
         {pubchem && (
-          <div className="technical-card">
-            <h3>PubChem</h3>
+          <SectionCard title="PubChem" subtitle="Compound metadata and synthesis context.">
             <p><strong>Compound:</strong> {pubchem.title || pubchem.drug_name || '-'}</p>
             <p><strong>CID:</strong> {pubchem.cid || '-'}</p>
-            {pubchem.properties && typeof pubchem.properties === 'object' && (
+            {pubchem.matched_query ? <p><strong>Matched query:</strong> {pubchem.matched_query}</p> : null}
+            {pubchem.matched_strategy ? <p><strong>Match type:</strong> {pubchem.matched_strategy}</p> : null}
+            {pubchem.properties && typeof pubchem.properties === 'object' ? (
               <div className="trace-result-block">
                 {renderKvList(pubchem.properties, 'pubchem-properties')}
               </div>
+            ) : null}
+            {Array.isArray(pubchem.synonyms) && pubchem.synonyms.length > 0 && (
+              <div className="bullet-panel">
+                <div className="trace-label">Synonyms</div>
+                <ul>
+                  {pubchem.synonyms.slice(0, 12).map((value, index) => (
+                    <li key={`synonym-${index}`}>{value}</li>
+                  ))}
+                </ul>
+              </div>
             )}
-          </div>
+            {Array.isArray(pubchem.annotation_lines) && pubchem.annotation_lines.length > 0 && (
+              <div className="bullet-panel">
+                <div className="trace-label">Annotation snippets</div>
+                <ul>
+                  {pubchem.annotation_lines.slice(0, 8).map((value, index) => (
+                    <li key={`annotation-${index}`}>{value}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </SectionCard>
         )}
 
-        {(pyvisHtmlPath || keggPath || volcanoPath) && (
-          <div className="technical-card">
-            <h3>Visual outputs</h3>
-            {pyvisHtmlPath && <p><strong>Network HTML:</strong> {pyvisHtmlPath}</p>}
-            {keggPath && <p><strong>KEGG image:</strong> {keggPath}</p>}
-            {volcanoPath && <p><strong>Volcano image:</strong> {volcanoPath}</p>}
-          </div>
+        {memoryLookup && Object.keys(memoryLookup).length > 0 && (
+          <SectionCard title="Lookup results" subtitle="Structured memory lookup values returned by the agent.">
+            {renderKvList(memoryLookup, 'memory-lookup')}
+          </SectionCard>
+        )}
+
+        {memorySlice && Object.keys(memorySlice).length > 0 && (
+          <SectionCard title="Memory slice" subtitle="Subset selections from stored technical state.">
+            {renderKvList(memorySlice, 'memory-slice')}
+          </SectionCard>
         )}
 
         {toolHistory.length > 0 && (
-          <div className="technical-card">
-            <h3>Tool trace</h3>
+          <SectionCard title="Tool trace" subtitle="Recent structured tool calls for this chat.">
             <div className="trace-list">
               {toolHistory.map((step, index) => (
                 <details className="trace-step" key={`trace-${index}`}>
@@ -584,7 +774,7 @@ function TechnicalPanel({ meta }) {
                 </details>
               ))}
             </div>
-          </div>
+          </SectionCard>
         )}
       </section>
     </aside>
@@ -595,16 +785,16 @@ function EmptyState() {
   return (
     <div className="empty-state">
       <div className="eyebrow">Biomedical workspace</div>
-      <h3>Start with a chat, then keep the technical context in one place.</h3>
-      <p>The agent can handle differential expression, enrichment, RWR prioritization, literature context, and drug matching in the same thread.</p>
+      <h3>Keep the narrative answer and the technical evidence in sync.</h3>
+      <p>The React workspace now mirrors the Streamlit outputs, including literature evidence, network artifacts, DEG tables, and visual plots.</p>
 
       <div className="empty-grid">
         <div className="empty-card accent-cyan">
           <div className="empty-card-title">Typical workflows</div>
           <ul>
-            <li>Run DEG from an SRP study, then ask for top pathways.</li>
-            <li>Use stored DEGs as seed genes for RWR target prioritization.</li>
-            <li>Follow up with disease association or L1000 drug matching.</li>
+            <li>Run DEG from an SRP study, then inspect pathways and volcano output.</li>
+            <li>Reuse stored DEG genes for RWR target ranking and network exploration.</li>
+            <li>Follow with disease literature, OpenTargets, PubChem, or L1000 matches.</li>
           </ul>
         </div>
 
@@ -612,17 +802,17 @@ function EmptyState() {
           <div className="empty-card-title">Good prompts</div>
           <ul>
             <li>Identify DEGs between Healthy lung tissue and COPD lung tissue for SRP123456.</li>
-            <li>Get pathways for the top 15 up-regulated genes.</li>
-            <li>Run RWR on the stored DEG genes and rank candidate targets.</li>
+            <li>Use the stored DEG genes to run pathway enrichment and visualize a volcano plot.</li>
+            <li>Summarize the literature evidence and show the current technical outputs.</li>
           </ul>
         </div>
 
         <div className="empty-card accent-slate">
-          <div className="empty-card-title">UI behavior</div>
+          <div className="empty-card-title">Workspace layout</div>
           <ul>
-            <li>The left side is the conversation and rendered answer.</li>
-            <li>The right rail keeps structured technical outputs and tool traces.</li>
-            <li>Chat previews and run summaries update as each turn completes.</li>
+            <li>The center column keeps the chat and loading status focused.</li>
+            <li>The right rail renders all technical artifacts and structured results.</li>
+            <li>Each chat preserves its own metadata so follow-up analysis stays grounded.</li>
           </ul>
         </div>
       </div>
@@ -636,6 +826,9 @@ function App() {
   const [authForm, setAuthForm] = useState(emptyAuth)
   const [authError, setAuthError] = useState('')
   const [loadingAuth, setLoadingAuth] = useState(false)
+  const [bootLoading, setBootLoading] = useState(true)
+  const [loadingChats, setLoadingChats] = useState(false)
+  const [loadingMessages, setLoadingMessages] = useState(false)
   const [chats, setChats] = useState([])
   const [activeChatId, setActiveChatId] = useState(null)
   const [messages, setMessages] = useState([])
@@ -653,7 +846,10 @@ function App() {
 
   useEffect(() => {
     const token = getToken()
-    if (!token) return
+    if (!token) {
+      setBootLoading(false)
+      return
+    }
 
     ;(async () => {
       try {
@@ -661,6 +857,8 @@ function App() {
         setUser(meResult)
       } catch {
         setToken('')
+      } finally {
+        setBootLoading(false)
       }
     })()
   }, [])
@@ -669,13 +867,15 @@ function App() {
     if (!user) return
 
     ;(async () => {
+      setLoadingChats(true)
       try {
         const chatResult = await fetchChats()
-        setChats(chatResult.chats || [])
+        const nextChats = chatResult.chats || []
+        setChats(nextChats)
 
         const storedChatId = localStorage.getItem(`gea_last_chat_${user.id}`)
-        const fallbackChatId = chatResult.chats?.[0]?.id || null
-        const selectedId = storedChatId && chatResult.chats?.some((chat) => chat.id === Number(storedChatId))
+        const fallbackChatId = nextChats[0]?.id || null
+        const selectedId = storedChatId && nextChats.some((chat) => chat.id === Number(storedChatId))
           ? Number(storedChatId)
           : fallbackChatId
 
@@ -688,6 +888,8 @@ function App() {
         }
       } catch (error) {
         setAppError(error.message)
+      } finally {
+        setLoadingChats(false)
       }
     })()
   }, [user])
@@ -705,11 +907,14 @@ function App() {
     if (!user || !activeChatId) return
 
     ;(async () => {
+      setLoadingMessages(true)
       try {
         const result = await fetchMessages(activeChatId)
         setMessages(result.messages || [])
       } catch (error) {
         setAppError(error.message)
+      } finally {
+        setLoadingMessages(false)
       }
     })()
   }, [activeChatId, user])
@@ -748,13 +953,13 @@ function App() {
     setChatBusy(true)
     setAppError('')
 
-    const optimisticMessage = {
+    const optimisticUserMessage = {
       role: 'user',
       content: text,
       created_at: new Date().toISOString(),
       optimistic: true,
     }
-    setMessages((current) => [...current, optimisticMessage])
+    setMessages((current) => [...current, optimisticUserMessage])
 
     try {
       const result = await sendMessage(activeChatId, text)
@@ -774,6 +979,7 @@ function App() {
   }
 
   async function handleNewChat(agentType = 'general') {
+    setAppError('')
     try {
       const title = agentType === 'literature' ? 'Literature chat' : 'New chat'
       const created = await createChat(title, agentType)
@@ -794,6 +1000,17 @@ function App() {
     setActiveChatId(null)
     setAppError('')
     setAuthError('')
+    setTechnicalMeta(null)
+  }
+
+  if (bootLoading) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card center-card">
+          <LoadingState label="Loading your analysis workspace" />
+        </div>
+      </div>
+    )
   }
 
   if (!user) {
@@ -848,7 +1065,7 @@ function App() {
               />
             </label>
 
-            {authError && <div className="alert error">{authError}</div>}
+            {authError ? <div className="alert error">{authError}</div> : null}
 
             <button className="primary" type="submit" disabled={loadingAuth}>
               {loadingAuth ? 'Please wait...' : authMode === 'login' ? 'Log in' : 'Create account'}
@@ -893,28 +1110,35 @@ function App() {
           )}
         </div>
 
-        <button className="primary new-chat" onClick={() => handleNewChat('general')} type="button">+ New chat</button>
-
-        <div className="chat-list">
-          {chats.map((chat) => (
-            <button
-              key={chat.id}
-              className={`chat-item ${chat.id === activeChatId ? 'active' : ''}`}
-              onClick={() => setActiveChatId(chat.id)}
-              type="button"
-            >
-              <div className="chat-item-top">
-                <div className="chat-title">{chat.title}</div>
-                <div className="chat-mini-badge">{formatChatMode(chat, chat.last_meta)}</div>
-              </div>
-              <div className="chat-preview">{chat.last_message_preview || 'No messages yet.'}</div>
-              <div className="chat-meta-row">
-                <span>{chat.message_count || 0} msgs</span>
-                <span>{formatTime(chat.updated_at)}</span>
-              </div>
-            </button>
-          ))}
+        <div className="sidebar-actions">
+          <button className="primary new-chat" onClick={() => handleNewChat('general')} type="button">New analysis</button>
+          <button className="ghost new-chat" onClick={() => handleNewChat('literature')} type="button">Literature chat</button>
         </div>
+
+        {loadingChats ? (
+          <LoadingState label="Loading chats" />
+        ) : (
+          <div className="chat-list">
+            {chats.map((chat) => (
+              <button
+                key={chat.id}
+                className={`chat-item ${chat.id === activeChatId ? 'active' : ''}`}
+                onClick={() => setActiveChatId(chat.id)}
+                type="button"
+              >
+                <div className="chat-item-top">
+                  <div className="chat-title">{chat.title}</div>
+                  <div className="chat-mini-badge">{formatChatMode(chat, chat.last_meta)}</div>
+                </div>
+                <div className="chat-preview">{chat.last_message_preview || 'No messages yet.'}</div>
+                <div className="chat-meta-row">
+                  <span>{chat.message_count || 0} msgs</span>
+                  <span>{formatTime(chat.updated_at)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </aside>
 
       <main className="chat-panel">
@@ -924,52 +1148,73 @@ function App() {
             <h2>{activeChat?.title || 'Select a chat'}</h2>
           </div>
           <div className="header-actions">
-            {technicalMeta?.route_rationale && (
-              <div className="header-caption">{technicalMeta.route_rationale}</div>
-            )}
+            {technicalMeta?.route_rationale ? <div className="header-caption">{technicalMeta.route_rationale}</div> : null}
             <div className="chat-badge">{formatChatMode(activeChat, technicalMeta)}</div>
           </div>
         </header>
 
-        {appError && <div className="alert error">{appError}</div>}
+        {appError ? <div className="alert error">{appError}</div> : null}
 
         <div className="workspace-layout">
           <section className="conversation-panel">
-            {runMetrics.length > 0 && (
-              <div className="summary-strip">
-                {runMetrics.map((metric) => (
+            <div className="summary-strip">
+              {runMetrics.length > 0 ? (
+                runMetrics.map((metric) => (
                   <div className="summary-pill" key={metric.label}>
                     <span>{metric.label}</span>
                     <strong>{metric.value}</strong>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              ) : (
+                <div className="summary-banner">
+                  Ask for DEG, enrichment, RWR, literature, or drug matching to populate the technical workspace.
+                </div>
+              )}
+            </div>
 
             <section className="message-list">
-              {messages.length === 0 ? (
+              {loadingMessages ? (
+                <LoadingState label="Loading conversation" />
+              ) : messages.length === 0 ? (
                 <EmptyState />
               ) : (
-                messages.map((message, index) => (
-                  <MessageBubble
-                    key={`${message.role}-${index}-${message.created_at || ''}`}
-                    message={message}
-                  />
-                ))
+                <>
+                  {messages.map((message, index) => (
+                    <MessageBubble
+                      key={`${message.role}-${index}-${message.created_at || ''}`}
+                      message={message}
+                    />
+                  ))}
+                  {chatBusy ? (
+                    <MessageBubble
+                      message={{
+                        role: 'assistant',
+                        content: 'Generating the answer and updating the technical outputs...',
+                        created_at: new Date().toISOString(),
+                        pending: true,
+                      }}
+                    />
+                  ) : null}
+                </>
               )}
             </section>
 
             <form className="composer" onSubmit={handleSendMessage}>
-              <div className="composer-shell">
+              <div className={`composer-shell ${chatBusy ? 'busy' : ''}`}>
                 <textarea
                   value={messageText}
                   onChange={(event) => setMessageText(event.target.value)}
                   placeholder="Ask a follow-up or start a new analysis..."
                   rows={4}
+                  disabled={!activeChatId || chatBusy}
                 />
                 <div className="composer-actions">
                   <div className="composer-hint">
-                    {activeChat ? `Chat updated ${formatTime(activeChat.updated_at)}` : 'Create or select a chat to begin.'}
+                    {chatBusy
+                      ? 'The agent is working through the current request.'
+                      : activeChat
+                        ? `Chat updated ${formatTime(activeChat.updated_at)}`
+                        : 'Create or select a chat to begin.'}
                   </div>
                   <button className="primary" type="submit" disabled={chatBusy || !activeChatId}>
                     {chatBusy ? 'Thinking...' : 'Send'}

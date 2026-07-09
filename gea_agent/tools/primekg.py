@@ -9,6 +9,7 @@ from langchain_neo4j import GraphCypherQAChain
 from langchain_neo4j import Neo4jGraph
 
 from gea_agent.config import SETTINGS
+from gea_agent.tools.extract_genes import extract_genes_from_text
 from gea_agent.tools.llm import get_llm
 from gea_agent.tools.llm import parse_json_object
 
@@ -337,6 +338,91 @@ def _query_keywords(question: str) -> list[str]:
     return keywords
 
 
+def _dedupe_gene_symbols(values: list[str] | None) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        symbol = str(value or "").strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        deduped.append(symbol)
+    return deduped
+
+
+def _resolve_focus_genes(question: str, focus_genes: list[str] | None = None) -> list[str]:
+    extracted = extract_genes_from_text(question, mode="strict")
+    return _dedupe_gene_symbols(list(focus_genes or []) + list(extracted or []))
+
+
+def _should_use_gene_focused_query(question: str, focus_genes: list[str]) -> bool:
+    if not focus_genes:
+        return False
+    if len(_extract_between_entities(question)) == 2:
+        return False
+
+    lowered = str(question or "").lower()
+    specific_target_markers = (
+        "biological process",
+        "biological processes",
+        "biological_process",
+        "molecular function",
+        "molecular functions",
+        "molecular_function",
+        "cellular component",
+        "cellular components",
+        "cellular_component",
+        "pathway",
+        "pathways",
+        "disease",
+        "diseases",
+        "drug",
+        "drugs",
+        "phenotype",
+        "phenotypes",
+        "exposure",
+        "anatomy",
+    )
+    if any(marker in lowered for marker in specific_target_markers):
+        return False
+
+    gene_focus_markers = (
+        "relationship",
+        "relationships",
+        "related",
+        "associated",
+        "connected",
+        "connection",
+        "connections",
+        "neighbor",
+        "neighborhood",
+        "interact",
+        "links",
+        "what is linked",
+        "what links",
+        "primekg",
+        "knowledge graph",
+    )
+    return any(marker in lowered for marker in gene_focus_markers)
+
+
+def _build_gene_focused_cypher(focus_genes: list[str]) -> str:
+    gene_list = json.dumps(_dedupe_gene_symbols(focus_genes), ensure_ascii=True)
+    return f"""
+MATCH (n:Entity)-[r:RELATED_TO]-(m:Entity)
+WHERE n.type = "gene/protein"
+AND toUpper(n.name) IN {gene_list}
+RETURN DISTINCT
+    n.name AS focus_gene,
+    m.name AS related_entity,
+    m.type AS related_type,
+    r.relation AS relation,
+    r.display_relation AS display_relation
+ORDER BY focus_gene, related_type, related_entity
+LIMIT {DEFAULT_PRIMEKG_CANDIDATE_LIMIT}
+""".strip()
+
+
 def _query_target_types(question: str) -> set[str]:
     lowered = str(question or "").lower()
     target_types: set[str] = set()
@@ -557,7 +643,7 @@ def _extract_focus_entity(question: str) -> str:
     return " ".join(filtered[-4:]).strip(" .?")
 
 
-def _build_rule_based_cypher(question: str) -> str:
+def _build_rule_based_cypher(question: str, focus_genes: list[str] | None = None) -> str:
     lowered = str(question or "").lower()
 
     between_entities = _extract_between_entities(question)
@@ -573,7 +659,11 @@ RETURN p
 LIMIT 1
 """.strip()
 
-    entity = _extract_focus_entity(question)
+    resolved_focus_genes = _dedupe_gene_symbols(focus_genes)
+    if resolved_focus_genes and _should_use_gene_focused_query(question, resolved_focus_genes):
+        return _build_gene_focused_cypher(resolved_focus_genes)
+
+    entity = resolved_focus_genes[0] if resolved_focus_genes else _extract_focus_entity(question)
     entity_terms = _entity_search_terms(entity)
     if not entity_terms:
         return ""
@@ -738,7 +828,7 @@ def test_primekg_connection() -> dict[str, Any]:
         }
 
 
-def query_primekg(question: str) -> dict[str, Any]:
+def query_primekg(question: str, focus_genes: list[str] | None = None) -> dict[str, Any]:
     """
     Description:
         Query PrimeKG using natural language or direct read-only Cypher.
@@ -749,6 +839,7 @@ def query_primekg(question: str) -> dict[str, Any]:
     """
 
     question = str(question or "").strip()
+    resolved_focus_genes = _resolve_focus_genes(question, focus_genes)
     if not question:
         return {
             "status": "error",
@@ -771,7 +862,19 @@ def query_primekg(question: str) -> dict[str, Any]:
             }
 
         if _is_read_only_cypher(question):
-            return _run_cypher_query(question, question, "Executed direct read-only Cypher against PrimeKG.")
+            direct = _run_cypher_query(question, question, "Executed direct read-only Cypher against PrimeKG.")
+            if resolved_focus_genes:
+                direct["focus_genes"] = resolved_focus_genes
+            return direct
+
+        if _should_use_gene_focused_query(question, resolved_focus_genes):
+            focused = _run_cypher_query(
+                question,
+                _build_gene_focused_cypher(resolved_focus_genes),
+                "PrimeKG answered using extracted gene focus terms.",
+            )
+            focused["focus_genes"] = resolved_focus_genes
+            return focused
 
         llm_error = ""
         try:
@@ -787,17 +890,22 @@ def query_primekg(question: str) -> dict[str, Any]:
                     "message": "PrimeKG did not generate a Cypher query.",
                 }
 
-            return _run_cypher_query(question, cypher)
+            llm_result = _run_cypher_query(question, cypher)
+            if resolved_focus_genes:
+                llm_result["focus_genes"] = resolved_focus_genes
+            return llm_result
         except Exception as exc:
             llm_error = str(exc).strip()
 
-        fallback_cypher = _build_rule_based_cypher(question)
+        fallback_cypher = _build_rule_based_cypher(question, focus_genes=resolved_focus_genes)
         if fallback_cypher:
             fallback = _run_cypher_query(
                 question,
                 fallback_cypher,
                 "PrimeKG answered using the local fallback query path because the LLM-backed path was unavailable.",
             )
+            if resolved_focus_genes:
+                fallback["focus_genes"] = resolved_focus_genes
             fallback["fallback_reason"] = llm_error or "LLM-backed path unavailable."
             return fallback
 

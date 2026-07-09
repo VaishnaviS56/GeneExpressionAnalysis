@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+import mimetypes
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
 from backend.services import (
@@ -18,6 +22,7 @@ from backend.services import (
 
 
 app = FastAPI(title="GEA Agent API")
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,6 +73,37 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict[s
     return user
 
 
+def _get_user_from_header_or_query(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+) -> dict[str, object]:
+    if token:
+        user = get_user_by_token(token.strip())
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+        return user
+    return get_current_user(authorization)
+
+
+def _resolve_asset_path(raw_path: str) -> Path:
+    candidate = Path(str(raw_path or "").strip())
+    if not candidate:
+        raise HTTPException(status_code=400, detail="Missing asset path")
+
+    resolved = candidate if candidate.is_absolute() else (WORKSPACE_ROOT / candidate)
+    try:
+        normalized = resolved.resolve(strict=True)
+        normalized.relative_to(WORKSPACE_ROOT)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Asset not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Asset path is outside the workspace") from exc
+
+    if not normalized.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return normalized
+
+
 @app.on_event("startup")
 def _startup() -> None:
     ensure_initialized()
@@ -76,6 +112,13 @@ def _startup() -> None:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/assets")
+def get_asset(path: str, _user=Depends(_get_user_from_header_or_query)):
+    asset_path = _resolve_asset_path(path)
+    media_type, _ = mimetypes.guess_type(asset_path.name)
+    return FileResponse(asset_path, media_type=media_type or "application/octet-stream")
 
 
 @app.post("/api/auth/register")

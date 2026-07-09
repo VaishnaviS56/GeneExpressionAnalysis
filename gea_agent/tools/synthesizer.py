@@ -411,9 +411,16 @@ def synthesize_technical_response(
                 "If a field is absent or empty, omit it instead of guessing. "
                 "Do not mention analysis arms, tool names, prompts, routing logic, or hidden intermediate steps. "
                 "Return plain text only, not JSON and not markdown code fences. "
-                "Answer the user's question directly in clear technical language. "
+                "Answer the user's question directly in clear, professional technical language. "
+                "Format the response as a polished short report using Markdown. "
+                "Use bold section headings such as `**Summary**`, `**Key Findings**`, `**Interpretation**`, `**Evidence**`, and `**References**` when relevant. "
+                "Always start with a brief high-signal summary section. "
+                "When multiple findings are present, prefer short bullet lists under a bold heading instead of dense paragraphs. "
+                "Use concise paragraphs for interpretation and implications. "
                 "Lead with the highest-signal findings, then add only the most relevant supporting detail. "
                 "State uncertainty explicitly whenever evidence is limited, mixed, or indirect. "
+                "Sound like a professional biomedical analyst: precise, neutral, and well organized. "
+                "Avoid casual phrasing, filler, repetition, and overly conversational wording. "
                 "Respect the active context: "
                 "for `srp`, summarize only DEG plus any provided enrichment context; "
                 "for `l1000cds2`, summarize only the returned small-molecule matches, requested cell-line filter, and whether the result reflects reversal or mimic mode; "
@@ -422,8 +429,9 @@ def synthesize_technical_response(
                 "for `opentargets`, summarize only the association evidence provided; "
                 "for `memory_rwr`, summarize only the stored-gene RWR prioritization; "
                 "for `disease`, summarize literature findings first, then relevant network or enrichment context if present. "
+                "For the general or disease-style response, prefer this order when supported by the payload: `**Summary**`, `**Key Findings**`, `**Interpretation**`, and `**References**`. "
                 "Keep the answer concise but scientifically useful. "
-                "When literature references are available, end with a short `References:` section.",
+                "When literature references are available, end with a short `**References**` section.",
             ),
             ("user", json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
         ]

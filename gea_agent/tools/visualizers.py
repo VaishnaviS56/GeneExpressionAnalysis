@@ -64,6 +64,8 @@ def build_network_visualization(
     output_path: str = "pyvis_network.html",
     select_top_degree: int = 300,
     allowed_nodes: list[str] | None = None,
+    seed_genes: list[str] | None = None,
+    rwr_genes: list[str] | None = None,
 ) -> dict[str, Any]:
     if graph is None or getattr(graph, "number_of_nodes", lambda: 0)() == 0:
         return {
@@ -72,28 +74,19 @@ def build_network_visualization(
             "pyvis_html_path": "",
         }
 
-    if isinstance(allowed_nodes, list) and allowed_nodes:
-        keep = {str(node).strip().upper() for node in allowed_nodes if str(node).strip()}
-        mapped_keep = {node for node in graph.nodes() if str(node).strip().upper() in keep}
-        if mapped_keep:
-            graph = graph.subgraph(mapped_keep).copy()
-            select_top_degree = max(len(mapped_keep), 1)
-        if graph.number_of_nodes() == 0:
-            return {
-                "status": "missing_graph",
-                "message": "No matching nodes were available for network visualization.",
-                "pyvis_html_path": "",
-            }
-
     html_path = build_pyvis_html(
         graph,
         output_path=output_path,
         select_top_degree=select_top_degree,
+        seed_genes=seed_genes,
+        rwr_genes=rwr_genes,
     )
     return {
         "status": "ok",
         "message": "Built PyVis network visualization.",
         "pyvis_html_path": html_path,
+        "visualized_node_count": int(graph.number_of_nodes()),
+        "visualized_edge_count": int(graph.number_of_edges()),
     }
 
 
