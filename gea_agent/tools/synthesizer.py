@@ -137,6 +137,95 @@ def _compact_opentargets(result: dict[str, Any] | None) -> dict[str, Any] | None
     return {key: value for key, value in compact.items() if value not in (None, "", [])}
 
 
+def _compact_l1000cds2(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+
+    compact: dict[str, Any] = {
+        "status": result.get("status"),
+        "message": result.get("message"),
+        "mode": result.get("mode"),
+        "requested_cell_lines": result.get("requested_cell_lines"),
+        "cell_line_filter_applied": result.get("cell_line_filter_applied"),
+        "up_gene_count": result.get("up_gene_count"),
+        "down_gene_count": result.get("down_gene_count"),
+        "signature_count": result.get("signature_count"),
+    }
+
+    top_drugs = result.get("top_drugs")
+    if isinstance(top_drugs, list):
+        compact["top_drugs"] = [
+            {
+                "name": row.get("name"),
+                "pert_id": row.get("pert_id"),
+                "best_rank": row.get("best_rank"),
+                "best_score": row.get("best_score"),
+                "cell_lines": row.get("cell_lines"),
+                "signature_count": row.get("signature_count"),
+            }
+            for row in top_drugs[:10]
+            if isinstance(row, dict)
+        ]
+
+    top_signatures = result.get("top_signatures")
+    if isinstance(top_signatures, list):
+        compact["top_signatures"] = [
+            {
+                "rank": row.get("rank"),
+                "perturbation": row.get("perturbation"),
+                "pert_id": row.get("pert_id"),
+                "cell_line": row.get("cell_line"),
+                "dose": row.get("dose"),
+                "dose_unit": row.get("dose_unit"),
+                "time": row.get("time"),
+                "time_unit": row.get("time_unit"),
+            }
+            for row in top_signatures[:5]
+            if isinstance(row, dict)
+        ]
+
+    return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
+
+
+def _compact_pubchem(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+
+    properties = result.get("properties") if isinstance(result.get("properties"), dict) else {}
+    compact = {
+        "status": result.get("status"),
+        "message": result.get("message"),
+        "drug_name": result.get("drug_name"),
+        "pert_id": result.get("pert_id"),
+        "matched_query": result.get("matched_query"),
+        "matched_strategy": result.get("matched_strategy"),
+        "title": result.get("title"),
+        "cid": result.get("cid"),
+        "properties": {
+            key: properties.get(key)
+            for key in (
+                "MolecularFormula",
+                "MolecularWeight",
+                "CanonicalSMILES",
+                "IsomericSMILES",
+                "InChI",
+                "InChIKey",
+                "XLogP",
+                "TPSA",
+                "HBondDonorCount",
+                "HBondAcceptorCount",
+                "RotatableBondCount",
+                "Complexity",
+            )
+            if properties.get(key) not in (None, "")
+        },
+        "synonyms": result.get("synonyms")[:30] if isinstance(result.get("synonyms"), list) else [],
+        "descriptions": result.get("descriptions")[:10] if isinstance(result.get("descriptions"), list) else [],
+        "annotation_lines": result.get("annotation_lines")[:60] if isinstance(result.get("annotation_lines"), list) else [],
+    }
+    return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
+
+
 def _compact_primekg(result: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
@@ -213,9 +302,11 @@ def _compact_literature(
         out["top_papers"] = [
             {
                 "paper_id": row.get("id"),
+                "source": row.get("source"),
                 "title": row.get("title"),
                 "year": row.get("year"),
                 "doi": row.get("doi"),
+                "pmid": row.get("pmid"),
                 "reason": row.get("reason"),
                 "relevance": row.get("relevance"),
             }
@@ -227,9 +318,12 @@ def _compact_literature(
         out["references"] = [
             {
                 "paper_id": row.get("paper_id"),
+                "source": row.get("source"),
                 "title": row.get("title"),
                 "year": row.get("year"),
                 "doi": row.get("doi"),
+                "pmid": row.get("pmid"),
+                "url": row.get("url"),
             }
             for row in references[:8]
             if isinstance(row, dict)
@@ -238,9 +332,12 @@ def _compact_literature(
         out["references"] = [
             {
                 "paper_id": index,
+                "source": row.get("source"),
                 "title": row.get("title"),
                 "year": row.get("year"),
                 "doi": row.get("doi"),
+                "pmid": row.get("pmid"),
+                "url": row.get("url"),
             }
             for index, row in enumerate(papers[:8], start=1)
             if isinstance(row, dict)
@@ -279,6 +376,10 @@ def synthesize_technical_response(
     if arm == "srp":
         payload["srp"] = _compact_seed_list(srp_ids, limit=10)
         payload["deg"] = _compact_deg_analysis(deg_analysis)
+    elif arm == "l1000cds2":
+        payload["l1000"] = _compact_l1000cds2(deg_analysis)
+    elif arm == "pubchem":
+        payload["pubchem"] = _compact_pubchem(deg_analysis)
     elif arm == "opentargets":
         payload["ot"] = _compact_opentargets(deg_analysis)
     elif arm == "primekg":
@@ -306,11 +407,14 @@ def synthesize_technical_response(
                 "Write the final user-facing answer using only the structured payload you receive. "
                 "If a field is absent or empty, omit it instead of guessing. "
                 "Do not mention analysis arms, tool names, prompts, routing logic, or hidden intermediate steps. "
+                "Return plain text only, not JSON and not markdown code fences. "
                 "Answer the user's question directly in clear technical language. "
                 "Lead with the highest-signal findings, then add only the most relevant supporting detail. "
                 "State uncertainty explicitly whenever evidence is limited, mixed, or indirect. "
                 "Respect the active context: "
                 "for `srp`, summarize only DEG plus any provided enrichment context; "
+                "for `l1000cds2`, summarize only the returned small-molecule matches, requested cell-line filter, and whether the result reflects reversal or mimic mode; "
+                "for `pubchem`, identify only genes, pathways, and diseases that are explicitly supported or reasonably inferable from the provided PubChem text and annotations; organize that answer with short `Genes`, `Pathways`, and `Diseases` labels when possible; if PubChem content does not support one of those categories, say so clearly; "
                 "for `primekg`, answer only from the provided knowledge-graph relationships; "
                 "for `opentargets`, summarize only the association evidence provided; "
                 "for `memory_rwr`, summarize only the stored-gene RWR prioritization; "

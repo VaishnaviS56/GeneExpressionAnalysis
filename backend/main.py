@@ -44,6 +44,7 @@ class AuthPayload(BaseModel):
 
 class ChatCreatePayload(BaseModel):
     title: str | None = None
+    agent_type: str | None = None
 
 
 class MessagePayload(BaseModel):
@@ -106,7 +107,8 @@ def get_chats(user=Depends(get_current_user)):
 @app.post("/api/chats")
 def create_new_chat(payload: ChatCreatePayload | None = None, user=Depends(get_current_user)):
     title = payload.title if payload else None
-    return create_chat(int(user["id"]), title=title)
+    agent_type = payload.agent_type if payload else None
+    return create_chat(int(user["id"]), title=title, agent_type=agent_type)
 
 
 @app.get("/api/chats/{chat_id}")

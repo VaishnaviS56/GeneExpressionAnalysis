@@ -24,6 +24,7 @@ class Settings:
         self.llm_provider: str = os.getenv("LLM_PROVIDER", "auto").strip().lower()
         self.groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         self.mistral_model: str = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
         self.http_timeout_seconds: int = int(os.getenv("HTTP_TIMEOUT_SECONDS", "30"))
@@ -35,6 +36,7 @@ class Settings:
         self.neo4j_uri: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self.neo4j_username: str = os.getenv("NEO4J_USERNAME", "neo4j")
         self.neo4j_password: str = os.getenv("NEO4J_PASSWORD", "primekg123")
+        self.neo4j_database: str = os.getenv("NEO4J_DATABASE", "neo4j").strip()
 
         self.deg_r_script_path: str = self.resolve_path(
             os.getenv("DEG_R_SCRIPT_PATH", r"GEA\dee2_t2d.R")
@@ -62,7 +64,7 @@ class Settings:
                 r"9606.protein.links.v12.0.min900.txt\9606.protein.links.v12.0.min900.txt",
             )
         )
-        self.string_local_mode: str = os.getenv("STRING_LOCAL_MODE", "full")
+        self.string_local_mode: str = os.getenv("STRING_LOCAL_MODE", "seed_1hop_closed")
         self.string_graph_cache_path: str = self.resolve_path(
             os.getenv("STRING_GRAPH_CACHE_PATH", r"string_full_graph.pkl")
         )

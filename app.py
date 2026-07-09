@@ -47,6 +47,9 @@ MEMORY_DEFAULTS: dict[str, Any] = {
     "memory_disease_name": "",
     "memory_openalex_genes": [],
     "memory_opentargets_results": [],
+    "memory_l1000cds2_result": {},
+    "memory_pubchem_result": {},
+    "memory_slice_result": {},
 }
 
 
@@ -102,6 +105,19 @@ def _build_memory_summary() -> str:
         parts.append(f"Stored disease literature genes available: {len(st.session_state.memory_openalex_genes)}.")
     if st.session_state.memory_opentargets_results:
         parts.append(f"Stored OpenTargets results available: {len(st.session_state.memory_opentargets_results)}.")
+    if st.session_state.memory_l1000cds2_result:
+        top_drugs = st.session_state.memory_l1000cds2_result.get("top_drugs", [])
+        if isinstance(top_drugs, list):
+            parts.append(f"Stored L1000CDS2 hits available: {len(top_drugs)}.")
+    if st.session_state.memory_pubchem_result:
+        cid = st.session_state.memory_pubchem_result.get("cid")
+        if cid:
+            parts.append(f"Stored PubChem result available for CID {cid}.")
+    if st.session_state.memory_slice_result:
+        field = st.session_state.memory_slice_result.get("field")
+        selected = st.session_state.memory_slice_result.get("selected_values", [])
+        if field and isinstance(selected, list):
+            parts.append(f"Stored memory slice available from {field}: {len(selected)} selected items.")
 
     recent_messages = st.session_state.messages[-4:]
     if recent_messages:
@@ -125,6 +141,8 @@ def _invoke_state_from_session(prompt: str) -> dict[str, Any]:
     for key in MEMORY_DEFAULTS:
         if key.startswith("memory_") and st.session_state.get(key):
             invoke_state[key] = st.session_state.get(key)
+    if st.session_state.get("memory_slice_result"):
+        invoke_state["memory_slice_result"] = st.session_state.get("memory_slice_result")
     return invoke_state
 
 
@@ -151,6 +169,15 @@ def _update_memory_from_meta(meta: dict[str, Any]) -> None:
         history = list(st.session_state.memory_opentargets_results or [])
         history.append(opentargets_result)
         st.session_state.memory_opentargets_results = history[-20:]
+    l1000_result = meta.get("l1000cds2_result")
+    if isinstance(l1000_result, dict) and l1000_result:
+        st.session_state.memory_l1000cds2_result = l1000_result
+    pubchem_result = meta.get("pubchem_result")
+    if isinstance(pubchem_result, dict) and pubchem_result:
+        st.session_state.memory_pubchem_result = pubchem_result
+    memory_slice_result = meta.get("memory_slice_result")
+    if isinstance(memory_slice_result, dict) and memory_slice_result:
+        st.session_state.memory_slice_result = memory_slice_result
 
 
 def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> None:
@@ -161,6 +188,8 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
     deg_analysis = meta.get("deg_analysis")
     rwr = meta.get("rwr_genes")
     enrichr = meta.get("enrichr")
+    l1000_result = meta.get("l1000cds2_result")
+    pubchem_result = meta.get("pubchem_result")
 
     if analysis_arm != "srp" and isinstance(disease_name, str) and disease_name:
         st.subheader("Disease query")
@@ -200,11 +229,6 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
         if isinstance(rows, list) and rows:
             st.table(rows[:10])
 
-        deg_gene_records = meta.get("deg_gene_records")
-        if isinstance(deg_gene_records, list) and deg_gene_records:
-            st.caption("DEG genes with p-values preserved for downstream analysis.")
-            st.table(deg_gene_records[:10])
-
     if analysis_arm != "srp" and isinstance(rwr, list) and rwr:
         st.subheader("Random Walk with Restart")
         st.table([{"gene": g, "score": float(s)} for g, s in rwr[:20]])
@@ -234,7 +258,72 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
                                 "overlap_genes": ", ".join(list(t.get("overlapping_genes") or [])[:10]),
                             }
                         )
-                    st.table(rows)
+                    st.table(rows[:10])
+
+    if isinstance(l1000_result, dict) and l1000_result:
+        st.subheader("L1000CDS2 drug matches")
+        requested_cell_lines = l1000_result.get("requested_cell_lines")
+        if isinstance(requested_cell_lines, list) and requested_cell_lines:
+            st.caption("Cell lines: " + ", ".join(str(value) for value in requested_cell_lines if str(value).strip()))
+        top_drugs = l1000_result.get("top_drugs")
+        if isinstance(top_drugs, list) and top_drugs:
+            st.table(
+                [
+                    {
+                        "drug": row.get("name"),
+                        "pert_id": row.get("pert_id"),
+                        "best_rank": row.get("best_rank"),
+                        "best_score": row.get("best_score"),
+                        "cell_lines": ", ".join(row.get("cell_lines") or []),
+                        "signature_count": row.get("signature_count"),
+                    }
+                    for row in top_drugs[:20]
+                    if isinstance(row, dict)
+                ]
+            )
+        else:
+            st.info(str(l1000_result.get("message") or "No L1000CDS2 drug matches were returned."))
+
+    if isinstance(pubchem_result, dict) and pubchem_result:
+        st.subheader("PubChem compound record")
+        cid = pubchem_result.get("cid")
+        title = pubchem_result.get("title") or pubchem_result.get("drug_name")
+        matched_query = pubchem_result.get("matched_query")
+        matched_strategy = pubchem_result.get("matched_strategy")
+        pert_id = pubchem_result.get("pert_id")
+        caption_parts = []
+        if title:
+            caption_parts.append(str(title))
+        if cid:
+            caption_parts.append(f"CID {cid}")
+        if pert_id:
+            caption_parts.append(f"pert_id {pert_id}")
+        if matched_query:
+            caption_parts.append(f"matched query {matched_query}")
+        if matched_strategy:
+            caption_parts.append(f"match type {matched_strategy}")
+        if caption_parts:
+            st.caption(" | ".join(caption_parts))
+
+        properties = pubchem_result.get("properties")
+        if isinstance(properties, dict) and properties:
+            st.table(
+                [
+                    {"property": str(key), "value": "" if value is None else str(value)}
+                    for key, value in properties.items()
+                    if value not in (None, "")
+                ]
+            )
+
+        synonyms = pubchem_result.get("synonyms")
+        if isinstance(synonyms, list) and synonyms:
+            st.caption("Synonyms")
+            st.table([{"synonym": value} for value in synonyms[:25] if str(value).strip()])
+
+        annotation_lines = pubchem_result.get("annotation_lines")
+        if isinstance(annotation_lines, list) and annotation_lines:
+            st.caption("Annotation snippets used for synthesis")
+            st.table([{"annotation": value} for value in annotation_lines[:25] if str(value).strip()])
 
     if isinstance(graph, nx.Graph) and graph.number_of_nodes() > 0:
         st.subheader("Downloads")
@@ -299,10 +388,13 @@ def _render_sidebar(meta: dict[str, Any]) -> None:
 
     analysis_arm = meta.get("analysis_arm") or "disease"
     deg_analysis = meta.get("deg_analysis")
+    rwr_genes = meta.get("rwr_genes")
     if analysis_arm == "srp" and isinstance(deg_analysis, dict):
         deg_genes = deg_analysis.get("genes", [])
         if isinstance(deg_genes, list):
             st.sidebar.metric("DEG genes", len(deg_genes))
+    if isinstance(rwr_genes, list) and rwr_genes:
+        st.sidebar.metric("RWR targets", len(rwr_genes))
 
     net = meta.get("network")
     if isinstance(net, dict):
@@ -331,14 +423,12 @@ if build_app is None:
     st.stop()
 
 app = _get_compiled_app()
-meta = st.session_state.last_meta if isinstance(st.session_state.last_meta, dict) else {}
-_render_sidebar(meta)
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-prompt = st.chat_input("Ask a biomedical question, run DEG follow-ups, or query stored pathway/RWR results.")
+prompt = st.chat_input("Ask a biomedical question, request a literature answer with references, run DEG follow-ups, or query stored pathway/RWR results.")
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.session_state.last_error = ""
@@ -363,6 +453,7 @@ if prompt:
 
 meta = st.session_state.last_meta
 graph = st.session_state.last_graph
+_render_sidebar(meta if isinstance(meta, dict) else {})
 if isinstance(meta, dict) and meta:
     st.divider()
     st.header("Technical results")

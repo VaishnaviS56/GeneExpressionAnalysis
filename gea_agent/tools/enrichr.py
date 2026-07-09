@@ -130,6 +130,8 @@ def enrichr_pathways(
         "GO_Cellular_Component_2023",
     ]
 
+    print("Enrichr genes: ", genes)
+
     out: dict[str, list[dict[str, Any]]] = {}
     messages: list[str] = []
     for lib in libraries:

@@ -272,7 +272,7 @@ sra.metadata <- sra.metadata[
 
 sra.metadata$disease <- factor(
     sra.metadata$treatment,
-    levels = c(control_name, test_name)
+    levels = c(test_name, control_name)
 )
 
 # sra.metadata <- sra.metadata[
@@ -305,7 +305,7 @@ library("biomaRt")
 mart <- useEnsembl(
     biomart = "genes",
     dataset = "hsapiens_gene_ensembl",
-    mirror = "useast"
+    mirror = "www"
 )
 annots <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id",
                 "hgnc_symbol", "entrezgene_id", "entrezgene_accession", 

@@ -12,6 +12,11 @@ from backend.security import hash_password, hash_token, new_token, verify_passwo
 _AGENT_APP = None
 
 
+def _normalize_agent_type(agent_type: str | None) -> str:
+    value = str(agent_type or "general").strip().lower()
+    return "literature" if value == "literature" else "general"
+
+
 def get_agent_app():
     global _AGENT_APP
     if _AGENT_APP is None:
@@ -84,19 +89,21 @@ def get_user(user_id: int) -> dict[str, Any] | None:
     )
 
 
-def create_chat(user_id: int, title: str | None = None) -> dict[str, Any]:
+def create_chat(user_id: int, title: str | None = None, agent_type: str | None = None) -> dict[str, Any]:
     resolved_title = (title or "New chat").strip() or "New chat"
+    resolved_agent_type = _normalize_agent_type(agent_type)
+    initial_arm = "literature" if resolved_agent_type == "literature" else "general"
     chat_id = execute(
         """
         INSERT INTO chats (
-            user_id, title, analysis_arm, srp_ids_json, memory_deg_genes_json,
+            user_id, title, agent_type, analysis_arm, srp_ids_json, memory_deg_genes_json,
             memory_deg_analysis_json, memory_control_name, memory_test_name, memory_enrichr_json, memory_rwr_seed_genes_json, memory_rwr_genes_json, memory_disease_name, memory_openalex_genes_json,
             last_meta_json,
             created_at, updated_at
         )
-        VALUES (?, ?, 'general', '[]', '[]', '{}', '', '', '{}', '[]', '[]', '', '[]', '{}', ?, ?)
+        VALUES (?, ?, ?, ?, '[]', '[]', '{}', '', '', '{}', '[]', '[]', '', '[]', '{}', ?, ?)
         """,
-        (user_id, resolved_title, now_iso(), now_iso()),
+        (user_id, resolved_title, resolved_agent_type, initial_arm, now_iso(), now_iso()),
     )
     return get_chat(user_id, chat_id)
 
@@ -231,8 +238,32 @@ def build_memory_summary(chat: dict[str, Any], messages: list[dict[str, Any]]) -
     return "\n".join(parts)
 
 
+def _chat_preview_fields(chat_id: int) -> tuple[int, str, str]:
+    count_row = fetch_one(
+        "SELECT COUNT(*) AS message_count FROM messages WHERE chat_id = ?",
+        (chat_id,),
+    ) or {}
+    latest = fetch_one(
+        """
+        SELECT role, content
+        FROM messages
+        WHERE chat_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (chat_id,),
+    ) or {}
+    preview = " ".join(str(latest.get("content", "")).split())
+    return (
+        int(count_row.get("message_count") or 0),
+        str(latest.get("role") or ""),
+        preview[:180],
+    )
+
+
 def _enrich_chat(chat: dict[str, Any]) -> dict[str, Any]:
     enriched = dict(chat)
+    enriched["agent_type"] = _normalize_agent_type(enriched.get("agent_type"))
     enriched["srp_ids"] = json_loads(enriched.get("srp_ids_json"), [])
     enriched["memory_deg_genes"] = json_loads(enriched.get("memory_deg_genes_json"), [])
     enriched["memory_deg_analysis"] = json_loads(enriched.get("memory_deg_analysis_json"), {})
@@ -243,20 +274,16 @@ def _enrich_chat(chat: dict[str, Any]) -> dict[str, Any]:
     enriched["memory_rwr_genes"] = json_loads(enriched.get("memory_rwr_genes_json"), [])
     enriched["memory_openalex_genes"] = json_loads(enriched.get("memory_openalex_genes_json"), [])
     enriched["last_meta"] = json_loads(enriched.get("last_meta_json"), {})
+    message_count, last_message_role, last_message_preview = _chat_preview_fields(int(enriched["id"]))
+    enriched["message_count"] = message_count
+    enriched["last_message_role"] = last_message_role
+    enriched["last_message_preview"] = last_message_preview
     return enriched
 
 
-def handle_chat_message(user_id: int, chat_id: int, content: str) -> dict[str, Any]:
-    chat = get_chat(user_id, chat_id)
-    if not chat:
-        raise ValueError("Chat not found")
-
-    append_message(chat_id, "user", content)
-    messages = list_messages(user_id, chat_id)
-    memory_summary = build_memory_summary(chat, messages)
-
+def _invoke_agent_for_chat(chat: dict[str, Any], content: str, memory_summary: str) -> dict[str, Any]:
     agent = get_agent_app()
-    result = agent.invoke(
+    return agent.invoke(
         {
             "query": content,
             "memory_summary": memory_summary,
@@ -271,6 +298,17 @@ def handle_chat_message(user_id: int, chat_id: int, content: str) -> dict[str, A
             "memory_openalex_genes": chat.get("memory_openalex_genes", []),
         }
     )
+
+
+def handle_chat_message(user_id: int, chat_id: int, content: str) -> dict[str, Any]:
+    chat = get_chat(user_id, chat_id)
+    if not chat:
+        raise ValueError("Chat not found")
+
+    append_message(chat_id, "user", content)
+    messages = list_messages(user_id, chat_id)
+    memory_summary = build_memory_summary(chat, messages)
+    result = _invoke_agent_for_chat(chat, content, memory_summary)
 
     answer = result.get("answer", "")
     append_message(chat_id, "assistant", answer)

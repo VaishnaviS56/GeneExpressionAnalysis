@@ -125,7 +125,7 @@ _HAS_LETTER_RE = re.compile(r"[A-Z]")
 _YEAR_RE = re.compile(r"^(19|20)\d{2}$")
 _ALL_DIGITS_RE = re.compile(r"^\d+$")
 
-_GENE_WITH_DIGIT_RE = re.compile(r"\b[a-zA-Z0-9-]{3,7}\b")
+_GENE_WITH_DIGIT_RE = re.compile(r"^(?=.*[0-9])[A-Z0-9-]{3,12}$")
 
 # Capture alpha-only symbols in common textual contexts
 _ALPHA_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
@@ -197,6 +197,7 @@ _STOPWORDS = {
     "QPCR",
     "RAT",
     "RESULTS",
+    "RWR",
     "RNA",
     "RT",
     "SARS",
@@ -216,6 +217,10 @@ _STOPWORDS = {
     "TO",
     "TRANSCRIPT",
     "TRANSCRIPTS",
+    "STRING",
+    "KEGG",
+    "PATHWAY",
+    "PATHWAYS",
     "V",
     "VARIANT",
     "VARIANTS",

@@ -64,11 +64,11 @@ export function fetchChats() {
   })
 }
 
-export function createChat(title) {
+export function createChat(title, agentType = 'general') {
   return request('/api/chats', {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, agent_type: agentType }),
   })
 }
 

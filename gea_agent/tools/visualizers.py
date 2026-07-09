@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,53 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from gea_agent.tools.pyvis_visualizer import build_pyvis_html
+
+
+def _normalize_pathway_label(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _select_kegg_rank(
+    results: list[dict[str, Any]],
+    pathway_term: str | None,
+    *,
+    default_rank: int,
+) -> tuple[int, dict[str, Any] | None]:
+    desired = _normalize_pathway_label(pathway_term)
+    if not desired:
+        return max(1, int(default_rank)), None
+
+    best: tuple[int, dict[str, Any], int] | None = None
+    for index, row in enumerate(results, start=1):
+        if not isinstance(row, dict):
+            continue
+        label = str(
+            row.get("path_name")
+            or row.get("term")
+            or row.get("term_name")
+            or row.get("name")
+            or row.get("Path")
+            or row.get("Term")
+            or ""
+        ).strip()
+        if not label:
+            continue
+        label_norm = _normalize_pathway_label(label)
+        score = 0
+        if label_norm == desired:
+            score = 1000
+        elif desired in label_norm or label_norm in desired:
+            score = 800
+        elif all(token in label_norm for token in desired.split() if token):
+            score = 600
+        if score <= 0:
+            continue
+        if best is None or score > best[2]:
+            best = (index, row, score)
+
+    if best is None:
+        return max(1, int(default_rank)), None
+    return best[0], best[1]
 
 
 def build_network_visualization(
@@ -55,6 +103,7 @@ def build_kegg_pathway_visualization(
     output_path: str = "kegg_pathway.png",
     kegg_rank: int = 1,
     species: str = "human",
+    pathway_term: str | None = None,
 ) -> dict[str, Any]:
     genes = [str(g).strip().upper() for g in genes if str(g).strip()]
     genes = list(dict.fromkeys(genes))
@@ -77,12 +126,25 @@ def build_kegg_pathway_visualization(
     output = str(Path(output_path).resolve())
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     try:
+        preview_results = gget.enrichr(
+            genes=genes,
+            database="KEGG_2021_Human",
+            species=species,
+            json=True,
+            verbose=False,
+        )
+        preview_rows = preview_results if isinstance(preview_results, list) else []
+        selected_rank, selected_pathway = _select_kegg_rank(
+            preview_rows,
+            pathway_term,
+            default_rank=int(kegg_rank),
+        )
         results = gget.enrichr(
             genes=genes,
             database="KEGG_2021_Human",
             species=species,
             kegg_out=output,
-            kegg_rank=int(kegg_rank),
+            kegg_rank=selected_rank,
             json=True,
             verbose=False,
         )
@@ -99,7 +161,9 @@ def build_kegg_pathway_visualization(
         "kegg_pathway_path": output,
         "kegg_enrichr_results": results if isinstance(results, list) else [],
         "genes": genes,
-        "kegg_rank": int(kegg_rank),
+        "kegg_rank": selected_rank,
+        "requested_pathway_term": str(pathway_term or "").strip(),
+        "matched_pathway": selected_pathway if isinstance(selected_pathway, dict) else {},
     }
 
 

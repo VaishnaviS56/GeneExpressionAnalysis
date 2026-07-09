@@ -7,6 +7,8 @@ string_full_graph.pkl
 *.html
 *.sqlite3
 *.pkl
+*.zip
+*.tsv
 .pytest_cache/
 .mypy_cache/
 node_modules/
@@ -14,6 +16,7 @@ frontend/node_modules/
 backend/data/
 # Ignore everything inside the GEA directory
 GEA/*
+tests/*
 # Allow Git to look inside subdirectories of GEA
 !GEA/**/
 # Do not ignore .R files anywhere inside GEA (at the root or nested)

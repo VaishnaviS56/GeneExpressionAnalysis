@@ -72,6 +72,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
+                agent_type TEXT NOT NULL DEFAULT 'general',
                 analysis_arm TEXT DEFAULT 'general',
                 srp_ids_json TEXT NOT NULL DEFAULT '[]',
                 memory_deg_genes_json TEXT NOT NULL DEFAULT '[]',
@@ -100,6 +101,8 @@ def init_db() -> None:
             """
         )
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(chats)").fetchall()}
+        if "agent_type" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN agent_type TEXT NOT NULL DEFAULT 'general'")
         if "memory_control_name" not in columns:
             conn.execute("ALTER TABLE chats ADD COLUMN memory_control_name TEXT NOT NULL DEFAULT ''")
         if "memory_test_name" not in columns:

@@ -204,7 +204,8 @@ def top_rwr_genes(
     seed_genes = [g for g in seed_genes if g in graph]
     if not seed_genes:
         return []
-    print(seed_genes)
+    
+    print("RWR genes: ", seed_genes)
     r = max(1, int(runs))
     if r == 1:
         scores = random_walk_with_restart(graph, seed_genes, restart_prob=restart_prob)
@@ -244,5 +245,4 @@ def top_rwr_genes(
     )
 
     kept = [(g, s) for g, s in candidates if pvals.get(g, 1.0) < alpha]
-    print(kept)
     return kept[:top_k]
