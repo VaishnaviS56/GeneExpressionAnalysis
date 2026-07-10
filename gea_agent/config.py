@@ -25,6 +25,8 @@ class Settings:
         self.groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         self.mistral_model: str = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
         self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.ollama_model: str = os.getenv("OLLAMA_MODEL", "gemma3-27b-it.gguf:latest")
+        self.ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip()
         self.temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
         self.http_timeout_seconds: int = int(os.getenv("HTTP_TIMEOUT_SECONDS", "30"))

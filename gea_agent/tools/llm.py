@@ -25,6 +25,11 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     ChatGoogleGenerativeAI = None
 
+try:
+    from langchain_ollama import ChatOllama
+except Exception:  # pragma: no cover - optional dependency
+    ChatOllama = None
+
 
 class LLMConnectivityError(RuntimeError):
     """Raised when every configured LLM provider fails due to connectivity issues."""
@@ -33,7 +38,13 @@ class LLMConnectivityError(RuntimeError):
 def is_gemini_family_provider() -> bool:
     provider = str(SETTINGS.llm_provider or "").strip().lower()
     model_name = str(getattr(SETTINGS, "gemini_model", "") or "").strip().lower()
-    return provider == "gemini" or "gemini" in model_name or "gemma" in model_name
+    ollama_model_name = str(getattr(SETTINGS, "ollama_model", "") or "").strip().lower()
+    return (
+        provider in {"gemini", "ollama"}
+        or "gemini" in model_name
+        or "gemma" in model_name
+        or "gemma" in ollama_model_name
+    )
 
 
 def parse_json_object(text: Any) -> dict[str, Any]:
@@ -69,12 +80,14 @@ def _provider_candidates() -> list[str]:
     candidates: list[str] = []
     if ChatGoogleGenerativeAI is not None and str(os.getenv("GOOGLE_API_KEY") or "").strip():
         candidates.append("gemini")
+    if ChatOllama is not None and str(getattr(SETTINGS, "ollama_base_url", "") or "").strip():
+        candidates.append("ollama")
     if ChatMistralAI is not None and str(os.getenv("MISTRAL_API_KEY") or "").strip():
         candidates.append("mistral")
     if ChatGroq is not None and str(os.getenv("GROQ_API_KEY") or "").strip():
         candidates.append("groq")
 
-    return candidates or ["gemini", "mistral", "groq"]
+    return candidates or ["gemini", "ollama", "mistral", "groq"]
 
 
 def _timeout_seconds() -> float:
@@ -125,6 +138,27 @@ def _build_provider_specs() -> list[dict[str, Any]]:
                         temperature=SETTINGS.temperature,
                         timeout=int(timeout),
                         max_retries=0,
+                    ),
+                }
+            )
+            continue
+
+        if provider == "ollama":
+            if ChatOllama is None:
+                specs.append(
+                    {
+                        "name": "ollama",
+                        "factory_error": "Ollama provider requested but `langchain_ollama` is not installed.",
+                    }
+                )
+                continue
+            specs.append(
+                {
+                    "name": "ollama",
+                    "factory": lambda: ChatOllama(
+                        model=SETTINGS.ollama_model,
+                        base_url=SETTINGS.ollama_base_url,
+                        temperature=SETTINGS.temperature,
                     ),
                 }
             )
@@ -186,8 +220,9 @@ def _is_connectivity_error(exc: Exception) -> bool:
 
 def _format_llm_failure(errors: list[str], connectivity_failures: int) -> str:
     provider_hint = (
-        "Set `LLM_PROVIDER` to `gemini`, `mistral`, or `groq`, and provide the matching API key "
-        "(`GOOGLE_API_KEY`, `MISTRAL_API_KEY`, or `GROQ_API_KEY`). "
+        "Set `LLM_PROVIDER` to `gemini`, `ollama`, `mistral`, or `groq`. "
+        "For hosted providers, provide the matching API key (`GOOGLE_API_KEY`, `MISTRAL_API_KEY`, or `GROQ_API_KEY`). "
+        "For Ollama, set `OLLAMA_MODEL` and `OLLAMA_BASE_URL`. "
         "Optionally set `GEMINI_MODEL`, `MISTRAL_MODEL`, or `GROQ_MODEL`."
     )
     details = " | ".join(errors) if errors else "No provider could be initialized."
