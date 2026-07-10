@@ -37,6 +37,8 @@ MEMORY_DEFAULTS: dict[str, Any] = {
     "last_meta": None,
     "last_error": "",
     "memory_deg_genes": [],
+    "memory_upregulated_genes": [],
+    "memory_downregulated_genes": [],
     "memory_deg_analysis": {},
     "memory_deg_gene_records": [],
     "memory_control_name": "",
@@ -149,6 +151,8 @@ def _invoke_state_from_session(prompt: str) -> dict[str, Any]:
 def _update_memory_from_meta(meta: dict[str, Any]) -> None:
     if meta.get("analysis_arm") == "srp":
         st.session_state.memory_deg_genes = meta.get("deg_genes", []) if isinstance(meta.get("deg_genes", []), list) else []
+        st.session_state.memory_upregulated_genes = meta.get("upregulated_genes", []) if isinstance(meta.get("upregulated_genes", []), list) else []
+        st.session_state.memory_downregulated_genes = meta.get("downregulated_genes", []) if isinstance(meta.get("downregulated_genes", []), list) else []
         st.session_state.memory_deg_analysis = meta.get("deg_analysis", {}) if isinstance(meta.get("deg_analysis", {}), dict) else {}
         st.session_state.memory_deg_gene_records = meta.get("deg_gene_records", []) if isinstance(meta.get("deg_gene_records", []), list) else []
         st.session_state.memory_control_name = str(meta.get("control_name") or "")

@@ -787,7 +787,33 @@ def _should_force_memory_lookup(state: AgentState) -> bool:
         )
     )
     if not wants_memory_overlap:
-        return False
+        wants_deg_memory = _memory_gene_query_requested(query)
+        asks_for_list_or_count = any(
+            phrase in query_norm
+            for phrase in (
+                "list",
+                "show",
+                "display",
+                "print",
+                "which genes",
+                "what genes",
+                "how many",
+                "count",
+                "number of",
+                "total",
+            )
+        )
+        has_stored_deg_memory = bool(
+            state.get("deg_gene_records")
+            or state.get("memory_deg_gene_records")
+            or state.get("upregulated_genes")
+            or state.get("downregulated_genes")
+            or state.get("memory_upregulated_genes")
+            or state.get("memory_downregulated_genes")
+            or state.get("deg_genes")
+            or state.get("memory_deg_genes")
+        )
+        return bool(wants_deg_memory and asks_for_list_or_count and has_stored_deg_memory)
 
     enrichr = state.get("enrichr")
     if not isinstance(enrichr, dict) or not isinstance(enrichr.get("libraries"), dict):

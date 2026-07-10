@@ -281,21 +281,36 @@ def _enrich_chat(chat: dict[str, Any]) -> dict[str, Any]:
     return enriched
 
 
+def _memory_value_from_chat(chat: dict[str, Any], key: str, default: Any) -> Any:
+    if key in chat and chat.get(key) not in (None, "", [], {}):
+        return chat.get(key)
+    last_meta = chat.get("last_meta")
+    if isinstance(last_meta, dict):
+        value = last_meta.get(key)
+        if value not in (None, "", [], {}):
+            return value
+    return default
+
+
 def _invoke_agent_for_chat(chat: dict[str, Any], content: str, memory_summary: str) -> dict[str, Any]:
     agent = get_agent_app()
     return agent.invoke(
         {
             "query": content,
             "memory_summary": memory_summary,
-            "memory_deg_genes": chat.get("memory_deg_genes", []),
-            "memory_deg_analysis": chat.get("memory_deg_analysis", {}),
-            "memory_control_name": chat.get("memory_control_name", ""),
-            "memory_test_name": chat.get("memory_test_name", ""),
-            "memory_enrichr": chat.get("memory_enrichr", {}),
-            "memory_rwr_seed_genes": chat.get("memory_rwr_seed_genes", []),
-            "memory_rwr_genes": chat.get("memory_rwr_genes", []),
-            "memory_disease_name": chat.get("memory_disease_name", ""),
-            "memory_openalex_genes": chat.get("memory_openalex_genes", []),
+            "memory_deg_genes": _memory_value_from_chat(chat, "memory_deg_genes", []),
+            "memory_upregulated_genes": _memory_value_from_chat(chat, "memory_upregulated_genes", []),
+            "memory_downregulated_genes": _memory_value_from_chat(chat, "memory_downregulated_genes", []),
+            "memory_deg_analysis": _memory_value_from_chat(chat, "memory_deg_analysis", {}),
+            "memory_deg_gene_records": _memory_value_from_chat(chat, "memory_deg_gene_records", []),
+            "memory_control_name": _memory_value_from_chat(chat, "memory_control_name", ""),
+            "memory_test_name": _memory_value_from_chat(chat, "memory_test_name", ""),
+            "memory_enrichr": _memory_value_from_chat(chat, "memory_enrichr", {}),
+            "memory_rwr_seed_genes": _memory_value_from_chat(chat, "memory_rwr_seed_genes", []),
+            "memory_rwr_genes": _memory_value_from_chat(chat, "memory_rwr_genes", []),
+            "memory_disease_name": _memory_value_from_chat(chat, "memory_disease_name", ""),
+            "memory_openalex_genes": _memory_value_from_chat(chat, "memory_openalex_genes", []),
+            "memory_slice_result": _memory_value_from_chat(chat, "memory_slice_result", {}),
         }
     )
 
