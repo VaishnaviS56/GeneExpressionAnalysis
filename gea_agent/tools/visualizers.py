@@ -11,6 +11,14 @@ import pandas as pd
 from gea_agent.tools.pyvis_visualizer import build_pyvis_html
 
 
+def _deg_gene_label(row: pd.Series) -> str:
+    for key in ("hgnc_symbol", "external_gene_name", "gene", "Gene", "symbol", "Ensembl"):
+        value = str(row.get(key, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def _normalize_pathway_label(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
@@ -193,6 +201,7 @@ def build_volcano_plot(
         }
 
     frame["neg_log10_p"] = -(frame["pvalue"].clip(lower=1e-300)).map(lambda value: float(math.log10(value)))
+    frame["gene_label"] = frame.apply(_deg_gene_label, axis=1)
     frame["direction"] = "neutral"
     frame.loc[
         (frame["log2FoldChange"] >= float(log2fc_threshold)) & (frame["pvalue"] <= float(pvalue_threshold)),
@@ -221,6 +230,49 @@ def build_volcano_plot(
     ax.axvline(float(log2fc_threshold), color="#64748b", linestyle="--", linewidth=1)
     ax.axvline(-float(log2fc_threshold), color="#64748b", linestyle="--", linewidth=1)
     ax.axhline(-float(math.log10(float(pvalue_threshold))), color="#64748b", linestyle="--", linewidth=1)
+    ymax = float(frame["neg_log10_p"].max()) if not frame.empty else 0.0
+    threshold_y = ymax * 0.98 if ymax > 0 else 0.1
+    ax.text(
+        float(log2fc_threshold),
+        threshold_y,
+        f"log2FC = {float(log2fc_threshold):.2f}",
+        color="#000000",
+        fontsize=8,
+        ha="left",
+        va="top",
+        rotation=90,
+    )
+    ax.text(
+        -float(log2fc_threshold),
+        threshold_y,
+        f"log2FC = -{float(log2fc_threshold):.2f}",
+        color="#000000",
+        fontsize=8,
+        ha="right",
+        va="top",
+        rotation=90,
+    )
+
+    labeled = frame[
+        (frame["direction"] != "neutral") & frame["gene_label"].astype(str).str.strip().ne("")
+    ].copy()
+    labeled = labeled.sort_values(["neg_log10_p", "log2FoldChange"], ascending=[False, False])
+    for _, row in labeled.iterrows():
+        x = float(row["log2FoldChange"])
+        y = float(row["neg_log10_p"])
+        dx = 3 if x >= 0 else -3
+        ha = "left" if x >= 0 else "right"
+        ax.annotate(
+            row["gene_label"],
+            xy=(x, y),
+            xytext=(dx, 3),
+            textcoords="offset points",
+            fontsize=7,
+            color="#000000",
+            ha=ha,
+            va="bottom",
+        )
+
     ax.set_title("Differential Expression Volcano Plot")
     ax.set_xlabel("log2 Fold Change")
     ax.set_ylabel("-log10(p-value)")

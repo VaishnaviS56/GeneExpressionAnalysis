@@ -30,6 +30,7 @@ const analysisArmLabels = {
   memory_lookup: 'Lookup',
   l1000cds2: 'L1000CDS2',
   pubchem: 'PubChem',
+  hypothesis: 'Hypothesis',
 }
 
 function formatNumber(value) {
@@ -426,6 +427,7 @@ function TechnicalPanel({ meta }) {
   const primeKg = meta.primekg_result && typeof meta.primekg_result === 'object' ? meta.primekg_result : null
   const l1000 = meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' ? meta.l1000cds2_result : null
   const pubchem = meta.pubchem_result && typeof meta.pubchem_result === 'object' ? meta.pubchem_result : null
+  const hypothesis = meta.hypothesis_result && typeof meta.hypothesis_result === 'object' ? meta.hypothesis_result : null
   const memoryLookup = meta.memory_lookup_result && typeof meta.memory_lookup_result === 'object' ? meta.memory_lookup_result : null
   const memorySlice = meta.memory_slice_result && typeof meta.memory_slice_result === 'object' ? meta.memory_slice_result : null
   const toolHistory = Array.isArray(meta.tool_history) ? meta.tool_history : []
@@ -735,6 +737,36 @@ function TechnicalPanel({ meta }) {
                 </ul>
               </div>
             )}
+          </SectionCard>
+        )}
+
+        {hypothesis && (
+          <SectionCard title="Experimental hypotheses" subtitle="LLM-generated validation ideas grounded in prior chat context and stored memory.">
+            {hypothesis.hypothesis_summary ? <p>{hypothesis.hypothesis_summary}</p> : null}
+            {Array.isArray(hypothesis.hypotheses) && hypothesis.hypotheses.length > 0 ? (
+              <div className="trace-list">
+                {hypothesis.hypotheses.slice(0, 8).map((item, index) => (
+                  <div className="trace-step" key={`hypothesis-${index}`}>
+                    <div className="trace-step-header">
+                      <div className="trace-step-index">Hypothesis {index + 1}</div>
+                      <div className="trace-step-name">{item.title || 'Untitled hypothesis'}</div>
+                    </div>
+                    {renderKvList(
+                      {
+                        rationale: item.rationale,
+                        experiment_design: item.experiment_design,
+                        expected_observation: item.expected_observation,
+                        readouts: item.readouts,
+                        existing_evidence: item.existing_evidence,
+                        novelty_assessment: item.novelty_assessment,
+                        supporting_reference_ids: item.supporting_reference_ids,
+                      },
+                      `hypothesis-${index}`,
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </SectionCard>
         )}
 

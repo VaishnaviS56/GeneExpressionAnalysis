@@ -6,6 +6,7 @@ from typing import Any
 import networkx as nx
 import streamlit as st
 import streamlit.components.v1 as components
+from langchain_core.messages import AIMessage, HumanMessage
 try:
     from dotenv import find_dotenv, load_dotenv
 except Exception:  # pragma: no cover - optional dependency
@@ -51,6 +52,7 @@ MEMORY_DEFAULTS: dict[str, Any] = {
     "memory_opentargets_results": [],
     "memory_l1000cds2_result": {},
     "memory_pubchem_result": {},
+    "memory_hypothesis_result": {},
     "memory_slice_result": {},
 }
 
@@ -115,6 +117,10 @@ def _build_memory_summary() -> str:
         cid = st.session_state.memory_pubchem_result.get("cid")
         if cid:
             parts.append(f"Stored PubChem result available for CID {cid}.")
+    if st.session_state.memory_hypothesis_result:
+        hypotheses = st.session_state.memory_hypothesis_result.get("hypotheses", [])
+        if isinstance(hypotheses, list) and hypotheses:
+            parts.append(f"Stored experimental hypotheses available: {len(hypotheses)}.")
     if st.session_state.memory_slice_result:
         field = st.session_state.memory_slice_result.get("field")
         selected = st.session_state.memory_slice_result.get("selected_values", [])
@@ -136,8 +142,20 @@ def _build_memory_summary() -> str:
 
 
 def _invoke_state_from_session(prompt: str) -> dict[str, Any]:
+    history_messages = []
+    for entry in st.session_state.messages:
+        role = str(entry.get("role") or "").strip().lower()
+        content = str(entry.get("content") or "")
+        if not content.strip():
+            continue
+        if role == "user":
+            history_messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            history_messages.append(AIMessage(content=content))
+
     invoke_state: dict[str, Any] = {
         "query": prompt,
+        "messages": history_messages,
         "memory_summary": _build_memory_summary(),
     }
     for key in MEMORY_DEFAULTS:
@@ -179,6 +197,9 @@ def _update_memory_from_meta(meta: dict[str, Any]) -> None:
     pubchem_result = meta.get("pubchem_result")
     if isinstance(pubchem_result, dict) and pubchem_result:
         st.session_state.memory_pubchem_result = pubchem_result
+    hypothesis_result = meta.get("hypothesis_result")
+    if isinstance(hypothesis_result, dict) and hypothesis_result:
+        st.session_state.memory_hypothesis_result = hypothesis_result
     memory_slice_result = meta.get("memory_slice_result")
     if isinstance(memory_slice_result, dict) and memory_slice_result:
         st.session_state.memory_slice_result = memory_slice_result
@@ -194,6 +215,7 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
     enrichr = meta.get("enrichr")
     l1000_result = meta.get("l1000cds2_result")
     pubchem_result = meta.get("pubchem_result")
+    hypothesis_result = meta.get("hypothesis_result")
 
     if analysis_arm != "srp" and isinstance(disease_name, str) and disease_name:
         st.subheader("Disease query")
@@ -335,6 +357,27 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
             st.caption("Annotation snippets used for synthesis")
             st.table([{"annotation": value} for value in annotation_lines[:25] if str(value).strip()])
 
+    if isinstance(hypothesis_result, dict) and hypothesis_result:
+        st.subheader("Experimental hypotheses")
+        summary = hypothesis_result.get("hypothesis_summary")
+        if isinstance(summary, str) and summary.strip():
+            st.caption(summary)
+        hypotheses = hypothesis_result.get("hypotheses")
+        if isinstance(hypotheses, list) and hypotheses:
+            st.table(
+                [
+                    {
+                        "title": row.get("title"),
+                        "rationale": row.get("rationale"),
+                        "experiment_design": row.get("experiment_design"),
+                        "expected_observation": row.get("expected_observation"),
+                        "existing_evidence": row.get("existing_evidence"),
+                    }
+                    for row in hypotheses[:10]
+                    if isinstance(row, dict)
+                ]
+            )
+
     if isinstance(graph, nx.Graph) and graph.number_of_nodes() > 0:
         st.subheader("Downloads")
         buff = io.BytesIO()
@@ -449,7 +492,7 @@ if prompt:
         with st.spinner("Thinking..."):
             try:
                 result = app.invoke(_invoke_state_from_session(prompt))
-                answer = str(result.get("answer") or "").strip() or "No answer was generated."
+                answer = str(result.get("answer") or "").strip() or "I could not produce a complete answer, but I can try a more targeted follow-up."
                 st.markdown(answer)
                 st.session_state.messages.append({"role": "assistant", "content": answer})
                 st.session_state.last_graph = result.get("graph")

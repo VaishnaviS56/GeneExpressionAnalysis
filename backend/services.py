@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from langchain_core.messages import AIMessage, HumanMessage
+
 from gea_agent.agent.graph import build_app
 
 from backend.db import fetch_all, fetch_one, execute, init_db, json_dumps, json_loads, now_iso
@@ -223,6 +225,11 @@ def build_memory_summary(chat: dict[str, Any], messages: list[dict[str, Any]]) -
         parts.append(f"Last disease context: {chat['memory_disease_name']}.")
     if chat.get("memory_openalex_genes"):
         parts.append(f"Stored disease literature genes: {len(chat['memory_openalex_genes'])}.")
+    hypothesis_result = chat.get("memory_hypothesis_result") or (chat.get("last_meta") or {}).get("hypothesis_result")
+    if isinstance(hypothesis_result, dict):
+        hypotheses = hypothesis_result.get("hypotheses")
+        if isinstance(hypotheses, list) and hypotheses:
+            parts.append(f"Stored experimental hypotheses: {len(hypotheses)}.")
 
     recent = messages[-4:]
     if recent:
@@ -292,11 +299,28 @@ def _memory_value_from_chat(chat: dict[str, Any], key: str, default: Any) -> Any
     return default
 
 
-def _invoke_agent_for_chat(chat: dict[str, Any], content: str, memory_summary: str) -> dict[str, Any]:
+def _history_to_langchain_messages(messages: list[dict[str, Any]]) -> list[Any]:
+    history: list[Any] = []
+    for row in messages:
+        if not isinstance(row, dict):
+            continue
+        role = str(row.get("role") or "").strip().lower()
+        content = str(row.get("content") or "")
+        if not content.strip():
+            continue
+        if role == "user":
+            history.append(HumanMessage(content=content))
+        elif role == "assistant":
+            history.append(AIMessage(content=content))
+    return history
+
+
+def _invoke_agent_for_chat(chat: dict[str, Any], content: str, memory_summary: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
     agent = get_agent_app()
     return agent.invoke(
         {
             "query": content,
+            "messages": _history_to_langchain_messages(messages),
             "memory_summary": memory_summary,
             "memory_deg_genes": _memory_value_from_chat(chat, "memory_deg_genes", []),
             "memory_upregulated_genes": _memory_value_from_chat(chat, "memory_upregulated_genes", []),
@@ -310,6 +334,7 @@ def _invoke_agent_for_chat(chat: dict[str, Any], content: str, memory_summary: s
             "memory_rwr_genes": _memory_value_from_chat(chat, "memory_rwr_genes", []),
             "memory_disease_name": _memory_value_from_chat(chat, "memory_disease_name", ""),
             "memory_openalex_genes": _memory_value_from_chat(chat, "memory_openalex_genes", []),
+            "memory_hypothesis_result": _memory_value_from_chat(chat, "memory_hypothesis_result", {}),
             "memory_slice_result": _memory_value_from_chat(chat, "memory_slice_result", {}),
         }
     )
@@ -323,7 +348,7 @@ def handle_chat_message(user_id: int, chat_id: int, content: str) -> dict[str, A
     append_message(chat_id, "user", content)
     messages = list_messages(user_id, chat_id)
     memory_summary = build_memory_summary(chat, messages)
-    result = _invoke_agent_for_chat(chat, content, memory_summary)
+    result = _invoke_agent_for_chat(chat, content, memory_summary, messages)
 
     answer = result.get("answer", "")
     append_message(chat_id, "assistant", answer)

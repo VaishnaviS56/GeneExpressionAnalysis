@@ -17,6 +17,7 @@ from gea_agent.tools.disease_literature import fetch_openalex_papers_and_genes, 
 from gea_agent.tools.deg_analysis import run_deg_r_analysis
 from gea_agent.tools.enrichr import enrichr_pathways
 from gea_agent.tools.extract_genes import extract_genes_from_text
+from gea_agent.tools.hypothesis import generate_experimental_hypotheses_safe
 from gea_agent.tools.l1000cds2 import query_l1000cds2
 from gea_agent.tools.llm import get_llm, is_gemini_family_provider, parse_json_object
 from gea_agent.tools.opentargets import (
@@ -55,10 +56,11 @@ Tool selection guide:
 7. opentargets_association: Use for gene-to-disease association evidence, disease checks for a gene or gene set, and drug associations tied to a gene.
 8. l1000cds2_query: Use when the user asks for LINCS/L1000/L1000CDS2 drug matches or reversal compounds based on up-regulated and down-regulated genes. Prefer stored DEG memory for the gene lists and extract cell-line names from the query when present.
 9. pubchem_drug_lookup: Use when the user asks about a drug or compound and wants PubChem-derived details, especially if they want likely genes, pathways, or diseases identified from the PubChem annotations.
-10. visualize: Use only when the user explicitly asks for a visual output such as a network, KEGG pathway image, or volcano plot.
-11. memory_lookup: Use for follow-up questions that can be answered from stored pathway overlap genes, GO terms, DEG sets, or simple intersections/membership checks.
-12. state_lookup: Use as the raw state inspector fallback when the user asks what is stored in memory, wants the length of a variable, or wants the literal value of any field in the agent state.
-13. memory_slice: Use when the user asks for top N or bottom N from any stored list-like state field. The selected slice should become reusable by downstream tools.
+10. hypothesis: Use when the user asks for experimental validation ideas, mechanistic hypotheses, or follow-up experiments. This tool has access to the full prior user/assistant transcript plus stored memory and can include literature references if similar experiments appear to have already been reported.
+11. visualize: Use only when the user explicitly asks for a visual output such as a network, KEGG pathway image, or volcano plot.
+12. memory_lookup: Use for follow-up questions that can be answered from stored pathway overlap genes, GO terms, DEG sets, or simple intersections/membership checks.
+13. state_lookup: Use as the raw state inspector fallback when the user asks what is stored in memory, wants the length of a variable, or wants the literal value of any field in the agent state.
+14. memory_slice: Use when the user asks for top N or bottom N from any stored list-like state field. The selected slice should become reusable by downstream tools.
 
 Operational guidance:
 - If the user asks a simple non-technical question or casual follow-up, answer directly without tools.
@@ -265,6 +267,26 @@ def _literature_followup_requested(text: str | None) -> bool:
     )
 
 
+def _hypothesis_requested(text: str | None) -> bool:
+    query = str(text or "").lower()
+    return any(
+        marker in query
+        for marker in (
+            "hypothesis",
+            "hypotheses",
+            "validate this",
+            "validation experiment",
+            "experimental validation",
+            "follow-up experiment",
+            "follow up experiment",
+            "how can i validate",
+            "what experiment should",
+            "what experiments should",
+            "suggest experiments",
+        )
+    )
+
+
 def _literature_memory_gene_requested(text: str | None) -> bool:
     query = str(text or "").lower()
     return any(
@@ -302,6 +324,95 @@ def _literature_state_gene_candidates(state: AgentState, *, limit: int = 12) -> 
         if len(genes) >= limit:
             break
     return genes
+
+
+def _memory_slice_field_from_query(text: str | None) -> str | None:
+    query = str(text or "").lower()
+    if any(marker in query for marker in ("upregulated genes", "up-regulated genes", "up regulated genes")):
+        return "memory_upregulated_genes"
+    if any(marker in query for marker in ("downregulated genes", "down-regulated genes", "down regulated genes")):
+        return "memory_downregulated_genes"
+    if any(marker in query for marker in ("deg genes", "differentially expressed genes")):
+        return "memory_deg_genes"
+    return None
+
+
+def _slice_request_satisfied_by_memory(state: AgentState, query: str) -> bool:
+    result = state.get("memory_slice_result")
+    if not isinstance(result, dict):
+        return False
+    requested_field = _memory_slice_field_from_query(query)
+    if requested_field:
+        resolved = str(result.get("field") or result.get("requested_field") or "")
+        if resolved != requested_field:
+            return False
+    requested_top_n = _parse_top_n_from_text(query)
+    selected_values = result.get("selected_values")
+    if not isinstance(selected_values, list) or not selected_values:
+        return False
+    if isinstance(requested_top_n, int) and requested_top_n > 0 and len(selected_values) < requested_top_n:
+        return False
+    return True
+
+
+def _should_use_memory_slice_for_current_query(
+    state: AgentState,
+    query: str,
+    *,
+    requested_limit: int | None = None,
+) -> bool:
+    result = state.get("memory_slice_result")
+    if not isinstance(result, dict):
+        return False
+
+    selected_values = result.get("selected_values")
+    if not isinstance(selected_values, list) or not selected_values:
+        return False
+
+    requested_field = _memory_slice_field_from_query(query)
+    if requested_field:
+        resolved = str(result.get("field") or result.get("requested_field") or "")
+        if resolved != requested_field:
+            return False
+
+    effective_limit = requested_limit
+    if not isinstance(effective_limit, int) or effective_limit <= 0:
+        parsed_limit = _parse_top_n_from_text(query)
+        effective_limit = parsed_limit if isinstance(parsed_limit, int) and parsed_limit > 0 else None
+
+    if isinstance(effective_limit, int) and effective_limit > 0 and len(selected_values) < effective_limit:
+        return False
+
+    return True
+
+
+def _should_force_memory_slice_for_research_query(state: AgentState) -> bool:
+    query = str(state.get("query") or "")
+    lowered = query.lower()
+    if not query.strip():
+        return False
+    if not (_should_force_research_literature_tool(state) or _should_force_literature_tool(state)):
+        return False
+    if not any(marker in lowered for marker in ("top ", "bottom ")):
+        return False
+    if not _memory_slice_field_from_query(query):
+        return False
+    if _slice_request_satisfied_by_memory(state, query):
+        return False
+    return True
+
+
+def _should_chain_research_after_memory_slice(state: AgentState, result: dict[str, Any]) -> bool:
+    query = str(state.get("query") or "")
+    if not (_should_force_research_literature_tool(state) or _should_force_literature_tool(state)):
+        return False
+    if not isinstance(result, dict) or str(result.get("status") or "") != "ok":
+        return False
+    requested_field = _memory_slice_field_from_query(query)
+    resolved = str(result.get("field") or result.get("requested_field") or "")
+    if requested_field and resolved != requested_field:
+        return False
+    return True
 
 
 def _literature_call_count(state: AgentState) -> int:
@@ -372,6 +483,22 @@ def _should_force_research_literature_tool(state: AgentState) -> bool:
     if not _looks_like_literature_query(query):
         return False
 
+    explicit_non_lit_markers = (
+        "visualize",
+        "plot",
+        "volcano",
+        "network",
+        "kegg",
+        "enrichr",
+        "pathway enrichment",
+        "l1000",
+        "l1000cds2",
+        "pubchem",
+        "primekg",
+    )
+    if any(marker in lowered for marker in explicit_non_lit_markers):
+        return False
+
     direct_answer_markers = (
         "with references",
         "with citations",
@@ -389,23 +516,35 @@ def _should_force_research_literature_tool(state: AgentState) -> bool:
     if not any(marker in lowered for marker in direct_answer_markers):
         return False
 
-    explicit_non_lit_markers = (
-        "visualize",
-        "plot",
-        "volcano",
-        "network",
-        "kegg",
-        "enrichr",
-        "pathway enrichment",
-        "l1000",
-        "l1000cds2",
-        "pubchem",
-        "primekg",
-    )
-    if any(marker in lowered for marker in explicit_non_lit_markers):
-        return False
-
     return True
+
+
+def _is_simple_conversational_query(text: str | None) -> bool:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return False
+    simple_exact = {
+        "hi",
+        "hello",
+        "hey",
+        "thanks",
+        "thank you",
+        "ok",
+        "okay",
+        "great",
+        "cool",
+        "bye",
+    }
+    if query in simple_exact:
+        return True
+    simple_prefixes = (
+        "hi ",
+        "hello ",
+        "hey ",
+        "thanks ",
+        "thank you ",
+    )
+    return any(query.startswith(prefix) for prefix in simple_prefixes)
 
 
 def _looks_like_pathway_enrichment_query(text: str | None) -> bool:
@@ -826,6 +965,28 @@ def _state_field_names() -> list[str]:
     return [str(name) for name in AgentState.__annotations__.keys()]
 
 
+def _state_field_aliases() -> dict[str, str]:
+    aliases: dict[str, str] = {
+        "upregulated genes": "upregulated_genes",
+        "up regulated genes": "upregulated_genes",
+        "downregulated genes": "downregulated_genes",
+        "down regulated genes": "downregulated_genes",
+        "deg genes": "deg_genes",
+        "differentially expressed genes": "deg_genes",
+        "rwr seed genes": "rwr_seed_genes",
+        "seed genes for rwr": "rwr_seed_genes",
+        "seed genes used for rwr": "rwr_seed_genes",
+        "rwr result genes": "rwr_genes",
+        "rwr results": "rwr_genes",
+        "rwr genes": "rwr_genes",
+        "rwr ranked genes": "rwr_genes",
+        "rwr output genes": "rwr_genes",
+        "rwr target genes": "rwr_genes",
+        "rwr hits": "rwr_genes",
+    }
+    return {_normalize_text_token(alias): field for alias, field in aliases.items()}
+
+
 def _match_state_fields(query: str, explicit_fields: Any = None) -> list[str]:
     requested: list[str] = []
     if isinstance(explicit_fields, list):
@@ -842,9 +1003,15 @@ def _match_state_fields(query: str, explicit_fields: Any = None) -> list[str]:
         alias_map[_normalize_text_token(field.replace("_", " "))] = field
         if field.startswith("memory_"):
             alias_map[_normalize_text_token(field[len("memory_"):])] = field
+    alias_map.update(_state_field_aliases())
 
+    matched_aliases: list[tuple[int, str, str]] = []
     for alias, field in alias_map.items():
-        if alias and alias in normalized_query and field not in requested:
+        if alias and alias in normalized_query:
+            matched_aliases.append((len(alias), alias, field))
+    matched_aliases.sort(key=lambda item: (-item[0], item[1]))
+    for _alias_len, _alias, field in matched_aliases:
+        if field not in requested:
             requested.append(field)
 
     resolved: list[str] = []
@@ -897,6 +1064,19 @@ def _as_listlike_state_value(value: Any) -> list[Any]:
     if isinstance(value, set):
         return sorted(list(value), key=lambda item: str(item))
     return []
+
+
+def _resolve_listlike_state_field(state: AgentState, field: str) -> tuple[str, list[Any]]:
+    resolved_field = str(field or "").strip()
+    values = _as_listlike_state_value(state.get(resolved_field))
+    if values or not resolved_field or resolved_field.startswith("memory_"):
+        return resolved_field, values
+
+    memory_field = f"memory_{resolved_field}"
+    memory_values = _as_listlike_state_value(state.get(memory_field))
+    if memory_values:
+        return memory_field, memory_values
+    return resolved_field, values
 
 
 def _selected_values_to_gene_candidates(values: Any) -> list[str]:
@@ -1316,7 +1496,8 @@ def _run_state_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
 def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("text") or state.get("query") or "")
     fields = _match_state_fields(query, args.get("fields"))
-    field = str((fields or [""])[0] or "").strip()
+    requested_field = str((fields or [""])[0] or "").strip()
+    field = requested_field
     if not field:
         return {
             "status": "missing_field",
@@ -1327,15 +1508,15 @@ def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
             "should_finalize": True,
         }
 
-    raw_value = state.get(field)
-    values = _as_listlike_state_value(raw_value)
+    field, values = _resolve_listlike_state_field(state, field)
     if not values:
         return {
             "status": "not_list_like",
             "analysis_arm": "memory_slice",
-            "field": field,
-            "answer": f"{field} is not a non-empty list-like state field.",
-            "message": f"{field} is not a non-empty list-like state field.",
+            "field": requested_field,
+            "resolved_field": field,
+            "answer": f"{requested_field} is not a non-empty list-like state field.",
+            "message": f"{requested_field} is not a non-empty list-like state field.",
             "selected_values": [],
             "should_finalize": True,
         }
@@ -1384,8 +1565,9 @@ def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
     if isinstance(bottom_n, int) and bottom_n > 0:
         answer_parts.append(f"bottom_n={bottom_n}")
     answer_parts.append(f"selected_count={len(selected_values)}")
+    summary_limit = len(selected_values) if selected_values else 50
     answer_parts.append(
-        "selected_values=" + json.dumps(_state_value_summary(selected_values, max_items=50), ensure_ascii=False, default=str)
+        "selected_values=" + json.dumps(_state_value_summary(selected_values, max_items=summary_limit), ensure_ascii=False, default=str)
     )
 
     answer_text = ", ".join(answer_parts)
@@ -1393,6 +1575,7 @@ def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
         "status": "ok",
         "analysis_arm": "memory_slice",
         "field": field,
+        "requested_field": requested_field,
         "field_length": len(values),
         "top_n": top_n if isinstance(top_n, int) and top_n > 0 else None,
         "bottom_n": bottom_n if isinstance(bottom_n, int) and bottom_n > 0 else None,
@@ -1710,8 +1893,10 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
 
 def _infer_analysis_arm(state: AgentState) -> str:
     arm = str(state.get("analysis_arm") or "").strip().lower()
-    if arm in {"general", "srp", "disease", "memory_rwr", "primekg", "opentargets", "memory_lookup", "state_lookup", "memory_slice", "l1000cds2", "pubchem", "research_literature", "literature"}:
+    if arm in {"general", "srp", "disease", "memory_rwr", "primekg", "opentargets", "memory_lookup", "state_lookup", "memory_slice", "l1000cds2", "pubchem", "research_literature", "literature", "hypothesis"}:
         return arm
+    if state.get("hypothesis_result"):
+        return "hypothesis"
     if state.get("memory_lookup_result"):
         return "memory_lookup"
     if state.get("state_lookup_result"):
@@ -1785,6 +1970,7 @@ def _build_system_prompt(state: AgentState) -> str:
         "upregulated_gene_count": len(state.get("upregulated_genes") or []),
         "downregulated_gene_count": len(state.get("downregulated_genes") or []),
         "openalex_gene_count": len(state.get("openalex_genes") or []),
+        "hypothesis_count": len((_ensure_dict(state.get("hypothesis_result")).get("hypotheses") or [])),
         "literature_source_status": _ensure_dict(state.get("literature_source_status")),
         "memory_deg_gene_count": len(state.get("memory_deg_genes") or []),
         "memory_upregulated_gene_count": len(state.get("memory_upregulated_genes") or []),
@@ -1819,7 +2005,9 @@ def _build_system_prompt(state: AgentState) -> str:
         "Your job is to choose the single best next action for the current turn.\n"
         "Think like an agent supervisor: inspect the live state, decide whether to answer or call exactly one tool, then reassess after the tool returns.\n"
         "Do not plan a long sequence in text. Make the next grounded move.\n"
-        "If the query is simple general knowledge, conversational, or already fully answered by state, answer directly without tools.\n"
+        "If the query is only a simple greeting, acknowledgment, or casual conversational turn, answer directly without tools.\n"
+        "Do not answer biomedical or technical questions directly from remembered state alone.\n"
+        "Use remembered state to choose and parameterize tools, not to bypass tool execution or rendered outputs.\n"
         "If the query needs technical analysis, prefer specialist tools over unsupported free-form reasoning.\n\n"
         "Specialist guidance:\n"
         f"{TOOL_USE_INSTRUCTIONS}\n\n"
@@ -1832,8 +2020,8 @@ def _build_system_prompt(state: AgentState) -> str:
         "Decision rules:\n"
         "- Choose only from the listed specialist tools when a tool is needed.\n"
         "- Make the smallest correct next decision rather than narrating a full workflow.\n"
-        "- Prefer using state and memory before asking tools to rediscover the same information.\n"
-        "- Reuse stored genes, DEG results, disease names, pathway results, and graph state whenever they already satisfy the request.\n"
+        "- Prefer using state and memory to parameterize tools instead of answering from memory alone.\n"
+        "- Reuse stored genes, DEG results, disease names, pathway results, and graph state as tool inputs whenever they already satisfy prerequisites.\n"
         "- If a required input is missing, choose the tool that can recover it instead of asking the user unless the gap cannot be inferred or recovered.\n"
         "- For pathway enrichment, prefer stored DEG genes and respect up/down regulation cues.\n"
         "- For DEG analysis, extract control, test, and SRP identifiers from the query or memory before running the tool.\n"
@@ -1843,13 +2031,40 @@ def _build_system_prompt(state: AgentState) -> str:
         "- If the user asks about overlap genes, intersections, or gene membership inside stored pathway/GO/DEG results, prefer `memory_lookup`.\n"
         "- For visualization, use stored pathway overlaps, RWR targets, DEG rows, or graphs whenever available.\n"
         "- Do not invent unavailable data, hidden evidence, or tool outputs.\n"
-        "- Stop using tools once the user’s question is sufficiently answered.\n"
-        "- Keep any direct answer concise, technically accurate, and aligned to the user's exact ask.\n"
+        "- Stop using tools once the user's question is sufficiently answered with a tool-backed result.\n"
+        "- Keep any direct answer concise, technically accurate, and limited to simple conversational turns.\n"
     )
 
 
 def _get_bound_llm():
     return get_llm().bind_tools(TOOL_SCHEMAS)
+
+
+def _last_resort_llm_answer(state: AgentState) -> str:
+    query = str(state.get("query") or "").strip()
+    if not query:
+        return "I could not generate a response for that request."
+
+    memory_summary = _compact_text(state.get("memory_summary"), limit=800)
+    tool_history = list(state.get("tool_history") or [])[-5:]
+    prompt = (
+        "You are the final fallback response generator for a biomedical agent. "
+        "A previous orchestration path ended without a usable final answer. "
+        "Provide a concise, helpful response to the user's request using the available context. "
+        "If the request is technical or biomedical, answer as clearly as possible and acknowledge uncertainty where needed. "
+        "Do not say that no answer was generated.\n\n"
+        f"User query: {query}\n"
+        f"Memory summary: {memory_summary or 'None'}\n"
+        f"Recent tool history: {json.dumps(tool_history, ensure_ascii=False, default=str)}"
+    )
+    try:
+        response = get_llm().invoke([("user", prompt)])
+        answer = str(getattr(response, "content", "") or "").strip()
+        if answer:
+            return answer
+    except Exception:
+        pass
+    return "I could not produce a complete answer, but I can try a more targeted follow-up if you want."
 
 
 def _prepare_context(state: AgentState) -> AgentState:
@@ -1896,6 +2111,8 @@ def _prepare_context(state: AgentState) -> AgentState:
         update["memory_l1000cds2_result"] = _ensure_dict(state.get("memory_l1000cds2_result"))
     if state.get("memory_pubchem_result") is not None:
         update["memory_pubchem_result"] = _ensure_dict(state.get("memory_pubchem_result"))
+    if state.get("memory_hypothesis_result") is not None:
+        update["memory_hypothesis_result"] = _ensure_dict(state.get("memory_hypothesis_result"))
     if state.get("memory_lookup_result") is not None:
         update["memory_lookup_result"] = _ensure_dict(state.get("memory_lookup_result"))
     if state.get("state_lookup_result") is not None:
@@ -1910,11 +2127,32 @@ def _prepare_context(state: AgentState) -> AgentState:
         update["l1000cds2_result"] = _ensure_dict(state.get("l1000cds2_result"))
     if state.get("pubchem_result") is not None:
         update["pubchem_result"] = _ensure_dict(state.get("pubchem_result"))
+    if state.get("hypothesis_result") is not None:
+        update["hypothesis_result"] = _ensure_dict(state.get("hypothesis_result"))
     return update
 
 
 def _agent(state: AgentState) -> AgentState:
     _trace_tool_call("llm_agent")
+
+    if _should_force_memory_slice_for_research_query(state):
+        query_text = str(state.get("query") or "")
+        requested_field = _memory_slice_field_from_query(query_text)
+        forced_call = {
+            "name": "memory_slice",
+            "args": {
+                "fields": [requested_field] if requested_field else [],
+                "top_n": _parse_top_n_from_text(query_text),
+                "text": query_text,
+            },
+            "id": "forced_memory_slice_for_research_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
 
     if _should_force_pathway_tool(state):
         forced_genes = [
@@ -1981,6 +2219,31 @@ def _agent(state: AgentState) -> AgentState:
             "step_count": int(state.get("step_count") or 0) + 1,
         }
 
+    if _hypothesis_requested(state.get("query")):
+        forced_genes = [
+            str(value).strip().upper()
+            for value in extract_genes_from_text(str(state.get("query") or ""), mode="strict")
+            if str(value).strip()
+        ]
+        forced_call = {
+            "name": "hypothesis",
+            "args": {
+                "validation_goal": str(state.get("query") or ""),
+                "genes": forced_genes,
+                "disease_name": str(state.get("disease_name") or state.get("memory_disease_name") or ""),
+                "hypothesis_count": 3,
+                "include_references": True,
+                "text": str(state.get("query") or ""),
+            },
+            "id": "forced_hypothesis_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
     if _should_force_literature_tool(state):
         forced_genes = [
             str(value).strip().upper()
@@ -2014,6 +2277,31 @@ def _agent(state: AgentState) -> AgentState:
     }
 
     if not getattr(response, "tool_calls", None):
+        query_text = str(state.get("query") or "")
+        if (
+            not _is_simple_conversational_query(query_text)
+            and (_should_force_research_literature_tool(state) or _should_force_literature_tool(state))
+        ):
+            fallback_genes = [
+                str(value).strip().upper()
+                for value in extract_genes_from_text(query_text, mode="strict")
+                if str(value).strip()
+            ]
+            fallback_call = {
+                "name": "research_literature",
+                "args": {
+                    "user_query": query_text,
+                    "disease_name": str(state.get("disease_name") or state.get("memory_disease_name") or ""),
+                    "genes": fallback_genes,
+                    "top_n": 20,
+                },
+                "id": "fallback_research_literature_call",
+                "type": "tool_call",
+            }
+            return {
+                "messages": [AIMessage(content="", tool_calls=[fallback_call])],
+                "step_count": int(state.get("step_count") or 0) + 1,
+            }
         update["answer"] = _compact_text(getattr(response, "content", ""), limit=4000)
         update["should_finalize"] = True
     return update
@@ -2439,11 +2727,47 @@ def _run_fetch_openalex(state: AgentState, args: dict[str, Any]) -> dict[str, An
     }
 
 
+def _run_hypothesis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
+    memory_state = {
+        "memory_control_name": str(state.get("memory_control_name") or ""),
+        "memory_test_name": str(state.get("memory_test_name") or ""),
+        "memory_deg_genes": list(state.get("memory_deg_genes") or []),
+        "memory_upregulated_genes": list(state.get("memory_upregulated_genes") or []),
+        "memory_downregulated_genes": list(state.get("memory_downregulated_genes") or []),
+        "memory_deg_analysis": _ensure_dict(state.get("memory_deg_analysis")),
+        "memory_deg_gene_records": list(state.get("memory_deg_gene_records") or []),
+        "memory_enrichr": _ensure_dict(state.get("memory_enrichr")),
+        "memory_rwr_seed_genes": list(state.get("memory_rwr_seed_genes") or []),
+        "memory_rwr_genes": list(state.get("memory_rwr_genes") or []),
+        "memory_disease_name": str(state.get("memory_disease_name") or ""),
+        "memory_openalex_genes": list(state.get("memory_openalex_genes") or []),
+        "memory_opentargets_results": list(state.get("memory_opentargets_results") or []),
+        "memory_l1000cds2_result": _ensure_dict(state.get("memory_l1000cds2_result")),
+        "memory_pubchem_result": _ensure_dict(state.get("memory_pubchem_result")),
+        "memory_lookup_result": _ensure_dict(state.get("memory_lookup_result")),
+        "memory_slice_result": _ensure_dict(state.get("memory_slice_result")),
+    }
+    result = generate_experimental_hypotheses_safe(
+        user_query=str(state.get("query") or args.get("text") or ""),
+        validation_goal=str(args.get("validation_goal") or state.get("query") or ""),
+        disease_name=str(args.get("disease_name") or state.get("disease_name") or state.get("memory_disease_name") or ""),
+        genes=list(args.get("genes") or []),
+        conversation_messages=list(state.get("messages") or []),
+        memory_state=memory_state,
+        hypothesis_count=int(args.get("hypothesis_count") or 3),
+        include_references=bool(args.get("include_references", True)),
+    )
+    result["analysis_arm"] = "hypothesis"
+    result["should_finalize"] = True
+    return result
+
+
 def _run_research_literature(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     user_query = str(args.get("user_query") or args.get("text") or state.get("query") or "").strip()
     genes = args.get("genes")
     if not isinstance(genes, list) or not genes:
-        genes = _literature_state_gene_candidates(state)
+        sliced_genes = _memory_slice_gene_candidates(state)
+        genes = sliced_genes if sliced_genes else _literature_state_gene_candidates(state)
     result = run_publication_research_assistant_safe(
         user_query,
         disease_name=str(args.get("disease_name") or state.get("disease_name") or state.get("memory_disease_name") or ""),
@@ -2706,7 +3030,7 @@ def _run_enrichr(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         genes = genes[:gene_limit]
     if not isinstance(genes, list) or not genes:
         sliced_genes = _memory_slice_gene_candidates(state)
-        if sliced_genes:
+        if sliced_genes and _should_use_memory_slice_for_current_query(state, query, requested_limit=gene_limit):
             genes = sliced_genes[:gene_limit] if isinstance(gene_limit, int) and gene_limit > 0 else sliced_genes
             gene_set_source = "memory_slice"
         elif analysis_arm == "srp":
@@ -3082,6 +3406,15 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             update["should_finalize"] = True
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
+        if tool_name == "hypothesis":
+            result = _execute_tool_runner("hypothesis", lambda: _run_hypothesis(state, args))
+            update = _specialist_history_update(state, "hypothesis", args, result)
+            update = {**update, **result}
+            update["analysis_arm"] = "hypothesis"
+            update["hypothesis_result"] = result
+            update["memory_hypothesis_result"] = result
+            return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
+
         if tool_name == "memory_lookup":
             result = _execute_tool_runner("memory_lookup", lambda: _run_memory_lookup(state, args))
             update = _specialist_history_update(state, "memory_lookup", args, result)
@@ -3101,6 +3434,8 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             update = _specialist_history_update(state, "memory_slice", args, result)
             update = {**update, **result}
             update["memory_slice_result"] = result
+            if _should_chain_research_after_memory_slice(state, result):
+                update["should_finalize"] = False
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "literature":
@@ -3246,14 +3581,54 @@ def _finalize(state: AgentState) -> AgentState:
                 "visualization_result": _ensure_dict(state.get("visualization_result")),
                 "tool_history": list(state.get("tool_history") or [])[-10:],
             }
+            if not answer:
+                answer = _last_resort_llm_answer(state)
             return {
                 "answer": answer,
                 "meta": meta,
                 "analysis_arm": analysis_arm,
                 "graph": graph if isinstance(graph, nx.Graph) else None,
             }
+        if analysis_arm == "hypothesis":
+            graph = state.get("graph")
+            final_answer = str(state.get("answer") or answer or "").strip()
+            meta = {
+                "analysis_arm": analysis_arm,
+                "is_followup": bool(state.get("is_followup", False)),
+                "route_rationale": state.get("route_rationale", ""),
+                "memory_control_name": str(state.get("memory_control_name") or ""),
+                "memory_test_name": str(state.get("memory_test_name") or ""),
+                "memory_deg_genes": list(state.get("memory_deg_genes") or []),
+                "memory_upregulated_genes": list(state.get("memory_upregulated_genes") or []),
+                "memory_downregulated_genes": list(state.get("memory_downregulated_genes") or []),
+                "memory_deg_analysis": _ensure_dict(state.get("memory_deg_analysis")),
+                "memory_deg_gene_records": list(state.get("memory_deg_gene_records") or []),
+                "memory_disease_name": str(state.get("memory_disease_name") or ""),
+                "memory_openalex_genes": list(state.get("memory_openalex_genes") or []),
+                "memory_l1000cds2_result": _ensure_dict(state.get("memory_l1000cds2_result")),
+                "memory_pubchem_result": _ensure_dict(state.get("memory_pubchem_result")),
+                "memory_hypothesis_result": _ensure_dict(state.get("memory_hypothesis_result")),
+                "disease_name": str(state.get("disease_name") or ""),
+                "openalex_papers": list(state.get("openalex_papers") or []),
+                "ranked_openalex_papers": list(state.get("ranked_openalex_papers") or []),
+                "literature_key_points": list(state.get("literature_key_points") or []),
+                "literature_references": list(state.get("literature_references") or []),
+                "literature_summary": str(state.get("literature_summary") or ""),
+                "literature_source_status": _ensure_dict(state.get("literature_source_status")),
+                "hypothesis_result": _ensure_dict(state.get("hypothesis_result")),
+                "tool_history": list(state.get("tool_history") or [])[-10:],
+            }
+            if not final_answer:
+                final_answer = _last_resort_llm_answer(state)
+            return {
+                "answer": final_answer,
+                "meta": meta,
+                "analysis_arm": analysis_arm,
+                "graph": graph if isinstance(graph, nx.Graph) else None,
+            }
         if analysis_arm in {"research_literature", "literature"}:
             graph = state.get("graph")
+            final_answer = str(state.get("answer") or answer or "").strip()
             meta = {
                 "analysis_arm": analysis_arm,
                 "is_followup": bool(state.get("is_followup", False)),
@@ -3273,6 +3648,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "memory_opentargets_results": list(state.get("memory_opentargets_results") or []),
                 "memory_l1000cds2_result": _ensure_dict(state.get("memory_l1000cds2_result")),
                 "memory_pubchem_result": _ensure_dict(state.get("memory_pubchem_result")),
+                "memory_hypothesis_result": _ensure_dict(state.get("memory_hypothesis_result")),
                 "disease_name": str(state.get("disease_name") or ""),
                 "disease_gene": str(state.get("disease_gene") or ""),
                 "state_lookup_result": _ensure_dict(state.get("state_lookup_result")),
@@ -3289,6 +3665,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "opentargets_result": _ensure_dict(state.get("opentargets_result")),
                 "l1000cds2_result": _ensure_dict(state.get("l1000cds2_result")),
                 "pubchem_result": _ensure_dict(state.get("pubchem_result")),
+                "hypothesis_result": _ensure_dict(state.get("hypothesis_result")),
                 "memory_lookup_result": _ensure_dict(state.get("memory_lookup_result")),
                 "deg_analysis": _ensure_dict(state.get("deg_analysis")),
                 "deg_genes": list(state.get("deg_genes") or []),
@@ -3306,8 +3683,10 @@ def _finalize(state: AgentState) -> AgentState:
                 "visualization_result": _ensure_dict(state.get("visualization_result")),
                 "tool_history": list(state.get("tool_history") or [])[-10:],
             }
+            if not final_answer:
+                final_answer = _last_resort_llm_answer(state)
             return {
-                "answer": str(state.get("answer") or answer or "").strip(),
+                "answer": final_answer,
                 "meta": meta,
                 "analysis_arm": analysis_arm,
                 "graph": graph if isinstance(graph, nx.Graph) else None,
@@ -3359,6 +3738,7 @@ def _finalize(state: AgentState) -> AgentState:
         "memory_opentargets_results": list(state.get("memory_opentargets_results") or []),
         "memory_l1000cds2_result": _ensure_dict(state.get("memory_l1000cds2_result")),
         "memory_pubchem_result": _ensure_dict(state.get("memory_pubchem_result")),
+        "memory_hypothesis_result": _ensure_dict(state.get("memory_hypothesis_result")),
         "disease_name": str(state.get("disease_name") or ""),
         "disease_gene": str(state.get("disease_gene") or ""),
         "state_lookup_result": _ensure_dict(state.get("state_lookup_result")),
@@ -3375,6 +3755,7 @@ def _finalize(state: AgentState) -> AgentState:
         "opentargets_result": _ensure_dict(state.get("opentargets_result")),
         "l1000cds2_result": _ensure_dict(state.get("l1000cds2_result")),
         "pubchem_result": _ensure_dict(state.get("pubchem_result")),
+        "hypothesis_result": _ensure_dict(state.get("hypothesis_result")),
         "memory_lookup_result": _ensure_dict(state.get("memory_lookup_result")),
         "deg_analysis": _ensure_dict(state.get("deg_analysis")),
         "deg_genes": list(state.get("deg_genes") or []),
@@ -3392,6 +3773,9 @@ def _finalize(state: AgentState) -> AgentState:
         "visualization_result": _ensure_dict(state.get("visualization_result")),
         "tool_history": list(state.get("tool_history") or [])[-10:],
     }
+    if not answer:
+        answer = _last_resort_llm_answer(state)
+
     return {
         "answer": answer,
         "meta": meta,
@@ -3547,6 +3931,20 @@ TOOL_SCHEMAS = [
         }
     ),
     tool(
+        "hypothesis",
+        description="Generate scientific experimental validation hypotheses grounded in the full prior user/assistant conversation plus stored memory state. Use this for validation strategies, follow-up experiments, mechanistic hypotheses, or multiple experiment suggestions. When useful, include literature references if similar experiments appear to have already been reported.",
+        return_direct=False,
+    )(
+        lambda validation_goal=None, genes=None, disease_name="", hypothesis_count=3, include_references=True, text=None: {
+            "validation_goal": validation_goal or text or "",
+            "genes": list(genes or []),
+            "disease_name": disease_name,
+            "hypothesis_count": hypothesis_count,
+            "include_references": include_references,
+            "text": text,
+        }
+    ),
+    tool(
         "memory_lookup",
         description="Answer stored list lookup and matching questions from chat memory. Use for intersections between stored pathway or GO overlap genes and stored up-regulated, down-regulated, or combined DEG genes, or for checking whether a named gene is present in a stored pathway, GO term, or DEG set.",
         return_direct=False,
@@ -3666,6 +4064,7 @@ TOOL_EXECUTORS: dict[str, Callable[[AgentState, dict[str, Any]], dict[str, Any]]
     "research_literature": lambda state, args: {},
     "identify_disease_from_query": lambda state, args: {},
     "visualize": lambda state, args: {},
+    "hypothesis": lambda state, args: {},
     "memory_lookup": lambda state, args: {},
     "state_lookup": lambda state, args: {},
     "memory_slice": lambda state, args: {},

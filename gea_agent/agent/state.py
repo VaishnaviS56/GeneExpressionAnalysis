@@ -44,6 +44,7 @@ class AgentState(TypedDict, total=False):
     memory_opentargets_results: list[dict[str, Any]]
     memory_l1000cds2_result: dict[str, Any]
     memory_pubchem_result: dict[str, Any]
+    memory_hypothesis_result: dict[str, Any]
 
     # disease literature branch
     disease_name: str
@@ -81,6 +82,7 @@ class AgentState(TypedDict, total=False):
     visualization_result: dict[str, Any]
     l1000cds2_result: dict[str, Any]
     pubchem_result: dict[str, Any]
+    hypothesis_result: dict[str, Any]
 
     # final
     answer: str
