@@ -492,7 +492,7 @@ if prompt:
         with st.spinner("Thinking..."):
             try:
                 result = app.invoke(_invoke_state_from_session(prompt))
-                answer = str(result.get("answer") or "").strip() or "I could not produce a complete answer, but I can try a more targeted follow-up."
+                answer = str(result.get("answer") or "").strip() or "No answer was generated."
                 st.markdown(answer)
                 st.session_state.messages.append({"role": "assistant", "content": answer})
                 st.session_state.last_graph = result.get("graph")

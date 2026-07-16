@@ -2040,33 +2040,6 @@ def _get_bound_llm():
     return get_llm().bind_tools(TOOL_SCHEMAS)
 
 
-def _last_resort_llm_answer(state: AgentState) -> str:
-    query = str(state.get("query") or "").strip()
-    if not query:
-        return "I could not generate a response for that request."
-
-    memory_summary = _compact_text(state.get("memory_summary"), limit=800)
-    tool_history = list(state.get("tool_history") or [])[-5:]
-    prompt = (
-        "You are the final fallback response generator for a biomedical agent. "
-        "A previous orchestration path ended without a usable final answer. "
-        "Provide a concise, helpful response to the user's request using the available context. "
-        "If the request is technical or biomedical, answer as clearly as possible and acknowledge uncertainty where needed. "
-        "Do not say that no answer was generated.\n\n"
-        f"User query: {query}\n"
-        f"Memory summary: {memory_summary or 'None'}\n"
-        f"Recent tool history: {json.dumps(tool_history, ensure_ascii=False, default=str)}"
-    )
-    try:
-        response = get_llm().invoke([("user", prompt)])
-        answer = str(getattr(response, "content", "") or "").strip()
-        if answer:
-            return answer
-    except Exception:
-        pass
-    return "I could not produce a complete answer, but I can try a more targeted follow-up if you want."
-
-
 def _prepare_context(state: AgentState) -> AgentState:
     messages = list(state.get("messages") or [])
     if not messages:
@@ -3581,8 +3554,6 @@ def _finalize(state: AgentState) -> AgentState:
                 "visualization_result": _ensure_dict(state.get("visualization_result")),
                 "tool_history": list(state.get("tool_history") or [])[-10:],
             }
-            if not answer:
-                answer = _last_resort_llm_answer(state)
             return {
                 "answer": answer,
                 "meta": meta,
@@ -3591,7 +3562,6 @@ def _finalize(state: AgentState) -> AgentState:
             }
         if analysis_arm == "hypothesis":
             graph = state.get("graph")
-            final_answer = str(state.get("answer") or answer or "").strip()
             meta = {
                 "analysis_arm": analysis_arm,
                 "is_followup": bool(state.get("is_followup", False)),
@@ -3618,17 +3588,14 @@ def _finalize(state: AgentState) -> AgentState:
                 "hypothesis_result": _ensure_dict(state.get("hypothesis_result")),
                 "tool_history": list(state.get("tool_history") or [])[-10:],
             }
-            if not final_answer:
-                final_answer = _last_resort_llm_answer(state)
             return {
-                "answer": final_answer,
+                "answer": str(state.get("answer") or answer or "").strip(),
                 "meta": meta,
                 "analysis_arm": analysis_arm,
                 "graph": graph if isinstance(graph, nx.Graph) else None,
             }
         if analysis_arm in {"research_literature", "literature"}:
             graph = state.get("graph")
-            final_answer = str(state.get("answer") or answer or "").strip()
             meta = {
                 "analysis_arm": analysis_arm,
                 "is_followup": bool(state.get("is_followup", False)),
@@ -3683,10 +3650,8 @@ def _finalize(state: AgentState) -> AgentState:
                 "visualization_result": _ensure_dict(state.get("visualization_result")),
                 "tool_history": list(state.get("tool_history") or [])[-10:],
             }
-            if not final_answer:
-                final_answer = _last_resort_llm_answer(state)
             return {
-                "answer": final_answer,
+                "answer": str(state.get("answer") or answer or "").strip(),
                 "meta": meta,
                 "analysis_arm": analysis_arm,
                 "graph": graph if isinstance(graph, nx.Graph) else None,
@@ -3773,9 +3738,6 @@ def _finalize(state: AgentState) -> AgentState:
         "visualization_result": _ensure_dict(state.get("visualization_result")),
         "tool_history": list(state.get("tool_history") or [])[-10:],
     }
-    if not answer:
-        answer = _last_resort_llm_answer(state)
-
     return {
         "answer": answer,
         "meta": meta,
