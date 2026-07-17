@@ -99,11 +99,21 @@ def create_chat(user_id: int, title: str | None = None, agent_type: str | None =
         """
         INSERT INTO chats (
             user_id, title, agent_type, analysis_arm, srp_ids_json, memory_deg_genes_json,
-            memory_deg_analysis_json, memory_control_name, memory_test_name, memory_enrichr_json, memory_rwr_seed_genes_json, memory_rwr_genes_json, memory_disease_name, memory_openalex_genes_json,
+            memory_upregulated_genes_json, memory_downregulated_genes_json,
+            memory_deg_analysis_json, memory_deg_gene_records_json,
+            memory_control_name, memory_test_name, memory_enrichr_json,
+            memory_rwr_seed_genes_json, memory_rwr_genes_json,
+            memory_disease_name, memory_openalex_genes_json,
+            memory_opentargets_results_json, memory_l1000cds2_result_json,
+            memory_pubchem_result_json, memory_hypothesis_result_json,
+            memory_slice_result_json,
             last_meta_json,
             created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, '[]', '[]', '{}', '', '', '{}', '[]', '[]', '', '[]', '{}', ?, ?)
+        VALUES (
+            ?, ?, ?, ?, '[]', '[]', '[]', '[]', '{}', '[]', '', '', '{}',
+            '[]', '[]', '', '[]', '[]', '{}', '{}', '{}', '{}', '{}', ?, ?
+        )
         """,
         (user_id, resolved_title, resolved_agent_type, initial_arm, now_iso(), now_iso()),
     )
@@ -146,6 +156,13 @@ def append_message(chat_id: int, role: str, content: str) -> None:
     execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now_iso(), chat_id))
 
 
+def _first_non_empty(*values: Any, default: Any = None) -> Any:
+    for value in values:
+        if value not in (None, "", [], {}):
+            return value
+    return default
+
+
 def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> None:
     if not isinstance(result_meta, dict):
         return
@@ -155,16 +172,111 @@ def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> N
         return
 
     analysis_arm = str(result_meta.get("analysis_arm") or current.get("analysis_arm") or "general")
-    srp_ids = result_meta.get("srp_ids", json_loads(current.get("srp_ids_json"), []))
-    memory_deg_genes = result_meta.get("deg_genes", json_loads(current.get("memory_deg_genes_json"), []))
-    memory_deg_analysis = result_meta.get("deg_analysis", json_loads(current.get("memory_deg_analysis_json"), {}))
-    memory_control_name = result_meta.get("control_name", current.get("memory_control_name", ""))
-    memory_test_name = result_meta.get("test_name", current.get("memory_test_name", ""))
-    memory_enrichr = result_meta.get("enrichr", json_loads(current.get("memory_enrichr_json"), {}))
-    memory_rwr_seed_genes = result_meta.get("rwr_seed_genes", json_loads(current.get("memory_rwr_seed_genes_json"), []))
-    memory_rwr_genes = result_meta.get("rwr_genes", json_loads(current.get("memory_rwr_genes_json"), []))
-    memory_disease_name = result_meta.get("disease_name", current.get("memory_disease_name", ""))
-    memory_openalex_genes = result_meta.get("openalex_genes", json_loads(current.get("memory_openalex_genes_json"), []))
+    srp_ids = _first_non_empty(
+        result_meta.get("srp_ids"),
+        json_loads(current.get("srp_ids_json"), []),
+        default=[],
+    )
+    memory_deg_genes = _first_non_empty(
+        result_meta.get("deg_genes"),
+        result_meta.get("memory_deg_genes"),
+        json_loads(current.get("memory_deg_genes_json"), []),
+        default=[],
+    )
+    memory_upregulated_genes = _first_non_empty(
+        result_meta.get("upregulated_genes"),
+        result_meta.get("memory_upregulated_genes"),
+        json_loads(current.get("memory_upregulated_genes_json"), []),
+        default=[],
+    )
+    memory_downregulated_genes = _first_non_empty(
+        result_meta.get("downregulated_genes"),
+        result_meta.get("memory_downregulated_genes"),
+        json_loads(current.get("memory_downregulated_genes_json"), []),
+        default=[],
+    )
+    memory_deg_analysis = _first_non_empty(
+        result_meta.get("deg_analysis"),
+        result_meta.get("memory_deg_analysis"),
+        json_loads(current.get("memory_deg_analysis_json"), {}),
+        default={},
+    )
+    memory_deg_gene_records = _first_non_empty(
+        result_meta.get("deg_gene_records"),
+        result_meta.get("memory_deg_gene_records"),
+        json_loads(current.get("memory_deg_gene_records_json"), []),
+        default=[],
+    )
+    memory_control_name = _first_non_empty(
+        result_meta.get("control_name"),
+        result_meta.get("memory_control_name"),
+        current.get("memory_control_name", ""),
+        default="",
+    )
+    memory_test_name = _first_non_empty(
+        result_meta.get("test_name"),
+        result_meta.get("memory_test_name"),
+        current.get("memory_test_name", ""),
+        default="",
+    )
+    memory_enrichr = _first_non_empty(
+        result_meta.get("enrichr"),
+        result_meta.get("memory_enrichr"),
+        json_loads(current.get("memory_enrichr_json"), {}),
+        default={},
+    )
+    memory_rwr_seed_genes = _first_non_empty(
+        result_meta.get("rwr_seed_genes"),
+        result_meta.get("memory_rwr_seed_genes"),
+        json_loads(current.get("memory_rwr_seed_genes_json"), []),
+        default=[],
+    )
+    memory_rwr_genes = _first_non_empty(
+        result_meta.get("rwr_genes"),
+        result_meta.get("memory_rwr_genes"),
+        json_loads(current.get("memory_rwr_genes_json"), []),
+        default=[],
+    )
+    memory_disease_name = _first_non_empty(
+        result_meta.get("disease_name"),
+        result_meta.get("memory_disease_name"),
+        current.get("memory_disease_name", ""),
+        default="",
+    )
+    memory_openalex_genes = _first_non_empty(
+        result_meta.get("openalex_genes"),
+        result_meta.get("memory_openalex_genes"),
+        json_loads(current.get("memory_openalex_genes_json"), []),
+        default=[],
+    )
+    memory_opentargets_results = _first_non_empty(
+        result_meta.get("memory_opentargets_results"),
+        json_loads(current.get("memory_opentargets_results_json"), []),
+        default=[],
+    )
+    memory_l1000cds2_result = _first_non_empty(
+        result_meta.get("l1000cds2_result"),
+        result_meta.get("memory_l1000cds2_result"),
+        json_loads(current.get("memory_l1000cds2_result_json"), {}),
+        default={},
+    )
+    memory_pubchem_result = _first_non_empty(
+        result_meta.get("pubchem_result"),
+        result_meta.get("memory_pubchem_result"),
+        json_loads(current.get("memory_pubchem_result_json"), {}),
+        default={},
+    )
+    memory_hypothesis_result = _first_non_empty(
+        result_meta.get("hypothesis_result"),
+        result_meta.get("memory_hypothesis_result"),
+        json_loads(current.get("memory_hypothesis_result_json"), {}),
+        default={},
+    )
+    memory_slice_result = _first_non_empty(
+        result_meta.get("memory_slice_result"),
+        json_loads(current.get("memory_slice_result_json"), {}),
+        default={},
+    )
     last_meta = result_meta if isinstance(result_meta, dict) else json_loads(current.get("last_meta_json"), {})
 
     execute(
@@ -173,7 +285,10 @@ def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> N
         SET analysis_arm = ?,
             srp_ids_json = ?,
             memory_deg_genes_json = ?,
+            memory_upregulated_genes_json = ?,
+            memory_downregulated_genes_json = ?,
             memory_deg_analysis_json = ?,
+            memory_deg_gene_records_json = ?,
             memory_control_name = ?,
             memory_test_name = ?,
             memory_enrichr_json = ?,
@@ -181,6 +296,11 @@ def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> N
             memory_rwr_genes_json = ?,
             memory_disease_name = ?,
             memory_openalex_genes_json = ?,
+            memory_opentargets_results_json = ?,
+            memory_l1000cds2_result_json = ?,
+            memory_pubchem_result_json = ?,
+            memory_hypothesis_result_json = ?,
+            memory_slice_result_json = ?,
             last_meta_json = ?,
             updated_at = ?
         WHERE id = ?
@@ -189,7 +309,10 @@ def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> N
             analysis_arm,
             json_dumps(srp_ids if isinstance(srp_ids, list) else []),
             json_dumps(memory_deg_genes if isinstance(memory_deg_genes, list) else []),
+            json_dumps(memory_upregulated_genes if isinstance(memory_upregulated_genes, list) else []),
+            json_dumps(memory_downregulated_genes if isinstance(memory_downregulated_genes, list) else []),
             json_dumps(memory_deg_analysis if isinstance(memory_deg_analysis, dict) else {}),
+            json_dumps(memory_deg_gene_records if isinstance(memory_deg_gene_records, list) else []),
             memory_control_name if isinstance(memory_control_name, str) else "",
             memory_test_name if isinstance(memory_test_name, str) else "",
             json_dumps(memory_enrichr if isinstance(memory_enrichr, dict) else {}),
@@ -197,6 +320,11 @@ def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> N
             json_dumps(memory_rwr_genes if isinstance(memory_rwr_genes, list) else []),
             memory_disease_name if isinstance(memory_disease_name, str) else "",
             json_dumps(memory_openalex_genes if isinstance(memory_openalex_genes, list) else []),
+            json_dumps(memory_opentargets_results if isinstance(memory_opentargets_results, list) else []),
+            json_dumps(memory_l1000cds2_result if isinstance(memory_l1000cds2_result, dict) else {}),
+            json_dumps(memory_pubchem_result if isinstance(memory_pubchem_result, dict) else {}),
+            json_dumps(memory_hypothesis_result if isinstance(memory_hypothesis_result, dict) else {}),
+            json_dumps(memory_slice_result if isinstance(memory_slice_result, dict) else {}),
             json_dumps(last_meta if isinstance(last_meta, dict) else {}),
             now_iso(),
             chat_id,
@@ -208,6 +336,12 @@ def build_memory_summary(chat: dict[str, Any], messages: list[dict[str, Any]]) -
     parts: list[str] = []
     if chat.get("memory_deg_genes"):
         parts.append(f"Stored DEG genes: {len(chat['memory_deg_genes'])}.")
+    if chat.get("memory_upregulated_genes"):
+        parts.append(f"Stored up-regulated genes: {len(chat['memory_upregulated_genes'])}.")
+    if chat.get("memory_downregulated_genes"):
+        parts.append(f"Stored down-regulated genes: {len(chat['memory_downregulated_genes'])}.")
+    if chat.get("memory_deg_gene_records"):
+        parts.append(f"Stored DEG gene records: {len(chat['memory_deg_gene_records'])}.")
     if chat.get("memory_control_name") or chat.get("memory_test_name"):
         parts.append(
             f"Stored DEG comparison: control={chat.get('memory_control_name', '') or 'NA'}, "
@@ -225,11 +359,25 @@ def build_memory_summary(chat: dict[str, Any], messages: list[dict[str, Any]]) -
         parts.append(f"Last disease context: {chat['memory_disease_name']}.")
     if chat.get("memory_openalex_genes"):
         parts.append(f"Stored disease literature genes: {len(chat['memory_openalex_genes'])}.")
+    if chat.get("memory_opentargets_results"):
+        parts.append(f"Stored OpenTargets results: {len(chat['memory_opentargets_results'])}.")
+    if isinstance(chat.get("memory_l1000cds2_result"), dict) and chat["memory_l1000cds2_result"]:
+        top_drugs = chat["memory_l1000cds2_result"].get("top_drugs", [])
+        if isinstance(top_drugs, list):
+            parts.append(f"Stored L1000CDS2 hits: {len(top_drugs)}.")
+    if isinstance(chat.get("memory_pubchem_result"), dict) and chat["memory_pubchem_result"]:
+        cid = chat["memory_pubchem_result"].get("cid")
+        parts.append(f"Stored PubChem result{f' for CID {cid}' if cid else ''}.")
     hypothesis_result = chat.get("memory_hypothesis_result") or (chat.get("last_meta") or {}).get("hypothesis_result")
     if isinstance(hypothesis_result, dict):
         hypotheses = hypothesis_result.get("hypotheses")
         if isinstance(hypotheses, list) and hypotheses:
             parts.append(f"Stored experimental hypotheses: {len(hypotheses)}.")
+    if isinstance(chat.get("memory_slice_result"), dict) and chat["memory_slice_result"]:
+        selected = chat["memory_slice_result"].get("selected_values", [])
+        field = chat["memory_slice_result"].get("field")
+        if isinstance(selected, list):
+            parts.append(f"Stored memory slice{f' from {field}' if field else ''}: {len(selected)} selected items.")
 
     recent = messages[-4:]
     if recent:
@@ -270,17 +418,52 @@ def _chat_preview_fields(chat_id: int) -> tuple[int, str, str]:
 
 def _enrich_chat(chat: dict[str, Any]) -> dict[str, Any]:
     enriched = dict(chat)
+    last_meta = json_loads(enriched.get("last_meta_json"), {})
     enriched["agent_type"] = _normalize_agent_type(enriched.get("agent_type"))
     enriched["srp_ids"] = json_loads(enriched.get("srp_ids_json"), [])
     enriched["memory_deg_genes"] = json_loads(enriched.get("memory_deg_genes_json"), [])
+    enriched["memory_upregulated_genes"] = json_loads(enriched.get("memory_upregulated_genes_json"), [])
+    enriched["memory_downregulated_genes"] = json_loads(enriched.get("memory_downregulated_genes_json"), [])
     enriched["memory_deg_analysis"] = json_loads(enriched.get("memory_deg_analysis_json"), {})
+    enriched["memory_deg_gene_records"] = json_loads(enriched.get("memory_deg_gene_records_json"), [])
     enriched["memory_control_name"] = enriched.get("memory_control_name", "")
     enriched["memory_test_name"] = enriched.get("memory_test_name", "")
     enriched["memory_enrichr"] = json_loads(enriched.get("memory_enrichr_json"), {})
     enriched["memory_rwr_seed_genes"] = json_loads(enriched.get("memory_rwr_seed_genes_json"), [])
     enriched["memory_rwr_genes"] = json_loads(enriched.get("memory_rwr_genes_json"), [])
+    enriched["memory_disease_name"] = enriched.get("memory_disease_name", "")
     enriched["memory_openalex_genes"] = json_loads(enriched.get("memory_openalex_genes_json"), [])
-    enriched["last_meta"] = json_loads(enriched.get("last_meta_json"), {})
+    enriched["memory_opentargets_results"] = json_loads(enriched.get("memory_opentargets_results_json"), [])
+    enriched["memory_l1000cds2_result"] = json_loads(enriched.get("memory_l1000cds2_result_json"), {})
+    enriched["memory_pubchem_result"] = json_loads(enriched.get("memory_pubchem_result_json"), {})
+    enriched["memory_hypothesis_result"] = json_loads(enriched.get("memory_hypothesis_result_json"), {})
+    enriched["memory_slice_result"] = json_loads(enriched.get("memory_slice_result_json"), {})
+    enriched["last_meta"] = last_meta
+    if isinstance(last_meta, dict):
+        fallback_pairs = {
+            "memory_deg_genes": ("deg_genes", "memory_deg_genes"),
+            "memory_upregulated_genes": ("upregulated_genes", "memory_upregulated_genes"),
+            "memory_downregulated_genes": ("downregulated_genes", "memory_downregulated_genes"),
+            "memory_deg_analysis": ("deg_analysis", "memory_deg_analysis"),
+            "memory_deg_gene_records": ("deg_gene_records", "memory_deg_gene_records"),
+            "memory_enrichr": ("enrichr", "memory_enrichr"),
+            "memory_rwr_seed_genes": ("rwr_seed_genes", "memory_rwr_seed_genes"),
+            "memory_rwr_genes": ("rwr_genes", "memory_rwr_genes"),
+            "memory_disease_name": ("disease_name", "memory_disease_name"),
+            "memory_openalex_genes": ("openalex_genes", "memory_openalex_genes"),
+            "memory_opentargets_results": ("memory_opentargets_results",),
+            "memory_l1000cds2_result": ("l1000cds2_result", "memory_l1000cds2_result"),
+            "memory_pubchem_result": ("pubchem_result", "memory_pubchem_result"),
+            "memory_hypothesis_result": ("hypothesis_result", "memory_hypothesis_result"),
+            "memory_slice_result": ("memory_slice_result",),
+        }
+        for target_key, meta_keys in fallback_pairs.items():
+            if enriched.get(target_key) not in (None, "", [], {}):
+                continue
+            enriched[target_key] = _first_non_empty(
+                *(last_meta.get(meta_key) for meta_key in meta_keys),
+                default=enriched.get(target_key),
+            )
     message_count, last_message_role, last_message_preview = _chat_preview_fields(int(enriched["id"]))
     enriched["message_count"] = message_count
     enriched["last_message_role"] = last_message_role
@@ -334,6 +517,9 @@ def _invoke_agent_for_chat(chat: dict[str, Any], content: str, memory_summary: s
             "memory_rwr_genes": _memory_value_from_chat(chat, "memory_rwr_genes", []),
             "memory_disease_name": _memory_value_from_chat(chat, "memory_disease_name", ""),
             "memory_openalex_genes": _memory_value_from_chat(chat, "memory_openalex_genes", []),
+            "memory_opentargets_results": _memory_value_from_chat(chat, "memory_opentargets_results", []),
+            "memory_l1000cds2_result": _memory_value_from_chat(chat, "memory_l1000cds2_result", {}),
+            "memory_pubchem_result": _memory_value_from_chat(chat, "memory_pubchem_result", {}),
             "memory_hypothesis_result": _memory_value_from_chat(chat, "memory_hypothesis_result", {}),
             "memory_slice_result": _memory_value_from_chat(chat, "memory_slice_result", {}),
         }

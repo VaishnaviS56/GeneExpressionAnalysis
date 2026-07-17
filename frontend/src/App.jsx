@@ -38,8 +38,10 @@ function formatNumber(value) {
   const num = Number(value)
   if (Number.isNaN(num)) return String(value)
   if (num === 0) return '0'
-  if (Math.abs(num) < 0.001 || Math.abs(num) >= 1000) return num.toExponential(2)
-  return num.toFixed(4)
+  const factor = 1000
+  const truncated = Math.trunc(num * factor) / factor
+  if (Math.abs(truncated) < 0.001 || Math.abs(truncated) >= 1000) return truncated.toExponential(3)
+  return truncated.toFixed(3)
 }
 
 function formatValue(value) {
@@ -55,6 +57,37 @@ function formatValue(value) {
     }
   }
   return String(value)
+}
+
+function csvCell(value) {
+  if (value === null || value === undefined) return ''
+  const text = Array.isArray(value)
+    ? value.join('; ')
+    : typeof value === 'object'
+      ? JSON.stringify(value)
+      : String(value)
+  return `"${text.replaceAll('"', '""')}"`
+}
+
+function buildCsvContent(rows, columns) {
+  const header = columns.map((column) => csvCell(column.label)).join(',')
+  const body = rows.map((row) => columns.map((column) => csvCell(column.value(row))).join(','))
+  return [header, ...body].join('\r\n')
+}
+
+function buildCsvDataUrl(rows, columns) {
+  return `data:text/csv;charset=utf-8,${encodeURIComponent(buildCsvContent(rows, columns))}`
+}
+
+function DownloadLink({ children, disabled = false, filename, href }) {
+  if (disabled || !href) {
+    return <span className="ghost mini disabled">{children}</span>
+  }
+  return (
+    <a className="ghost mini" download={filename} href={href}>
+      {children}
+    </a>
+  )
 }
 
 function formatTime(value) {
@@ -384,6 +417,7 @@ function SectionCard({ title, subtitle, children }) {
 function ArtifactPreview({ label, path, mode }) {
   if (!path) return null
   const src = buildAssetUrl(path)
+  const downloadSrc = buildAssetUrl(path, { download: true })
 
   return (
     <div className="artifact-block">
@@ -392,7 +426,10 @@ function ArtifactPreview({ label, path, mode }) {
           <div className="artifact-label">{label}</div>
           <div className="artifact-path">{path}</div>
         </div>
-        <a className="ghost mini" href={src} rel="noreferrer" target="_blank">Open</a>
+        <div className="artifact-actions">
+          <a className="ghost mini" href={src} rel="noreferrer" target="_blank">Open</a>
+          <a className="ghost mini" download href={downloadSrc}>Download</a>
+        </div>
       </div>
       {mode === 'html' ? (
         <iframe className="artifact-frame" src={src} title={label} />
@@ -418,7 +455,27 @@ function TechnicalPanel({ meta }) {
     )
   }
 
-  const degRows = Array.isArray(meta.deg_gene_records) ? meta.deg_gene_records.slice(0, 10) : []
+  const degUpRows = Array.isArray(meta.deg_analysis?.upregulated_rows)
+    ? meta.deg_analysis.upregulated_rows.slice(0, 10)
+    : Array.isArray(meta.deg_gene_records)
+      ? meta.deg_gene_records
+        .filter((row) => Number(row?.log2FoldChange) > 0)
+        .sort((a, b) => Number(b?.log2FoldChange || 0) - Number(a?.log2FoldChange || 0))
+        .slice(0, 10)
+      : []
+  const degDownRows = Array.isArray(meta.deg_analysis?.downregulated_rows)
+    ? meta.deg_analysis.downregulated_rows.slice(0, 10)
+    : Array.isArray(meta.deg_gene_records)
+      ? meta.deg_gene_records
+        .filter((row) => Number(row?.log2FoldChange) < 0)
+        .sort((a, b) => Number(a?.log2FoldChange || 0) - Number(b?.log2FoldChange || 0))
+        .slice(0, 10)
+      : []
+  const degDownloadRows = Array.isArray(meta.deg_gene_records)
+    ? meta.deg_gene_records
+    : Array.isArray(meta.deg_analysis?.rows)
+      ? meta.deg_analysis.rows
+      : []
   const enrichrLibs = meta.enrichr && typeof meta.enrichr === 'object' && meta.enrichr.libraries && typeof meta.enrichr.libraries === 'object'
     ? meta.enrichr.libraries
     : {}
@@ -442,6 +499,42 @@ function TechnicalPanel({ meta }) {
   const volcanoPath = typeof meta.volcano_plot_path === 'string' ? meta.volcano_plot_path : ''
   const requestedCellLines = Array.isArray(l1000?.requested_cell_lines) ? l1000.requested_cell_lines : []
   const runMetrics = getRunMetrics(meta)
+  const pathwayDownloadRows = Object.entries(enrichrLibs).flatMap(([library, terms]) => (
+    Array.isArray(terms)
+      ? terms.map((term, index) => ({ ...term, library, rank: index + 1 }))
+      : []
+  ))
+  const l1000DownloadRows = Array.isArray(l1000?.top_drugs) ? l1000.top_drugs : []
+  const degCsvHref = degDownloadRows.length > 0
+    ? buildCsvDataUrl(degDownloadRows, [
+      { label: 'gene', value: (row) => row.gene || row.hgnc_symbol || row.external_gene_name || row.Ensembl || '' },
+      { label: 'log2FoldChange', value: (row) => formatNumber(row.log2FoldChange) },
+      { label: 'pvalue', value: (row) => formatNumber(row.pvalue) },
+      { label: 'description', value: (row) => row.description },
+    ])
+    : ''
+  const pathwayCsvHref = pathwayDownloadRows.length > 0
+    ? buildCsvDataUrl(pathwayDownloadRows, [
+      { label: 'library', value: (row) => row.library },
+      { label: 'rank', value: (row) => row.rank },
+      { label: 'term', value: (row) => row.term || row.t },
+      { label: 'p_value', value: (row) => row.p_value ?? row.p },
+      { label: 'adjusted_p_value', value: (row) => row.adjusted_p_value ?? row.adj },
+      { label: 'combined_score', value: (row) => row.combined_score ?? row.cs },
+      { label: 'overlapping_genes', value: (row) => row.overlapping_genes || row.genes },
+      { label: 'n_overlap_genes', value: (row) => row.n_overlap_genes || (Array.isArray(row.overlapping_genes) ? row.overlapping_genes.length : '') },
+    ])
+    : ''
+  const l1000CsvHref = l1000DownloadRows.length > 0
+    ? buildCsvDataUrl(l1000DownloadRows, [
+      { label: 'drug', value: (row) => row.name },
+      { label: 'pert_id', value: (row) => row.pert_id },
+      { label: 'best_rank', value: (row) => row.best_rank },
+      { label: 'best_score', value: (row) => row.best_score },
+      { label: 'signature_count', value: (row) => row.signature_count },
+      { label: 'cell_lines', value: (row) => row.cell_lines },
+    ])
+    : ''
 
   return (
     <aside className="insights-panel">
@@ -464,6 +557,41 @@ function TechnicalPanel({ meta }) {
             </div>
           )}
         </div>
+
+        {(degCsvHref || volcanoPath || l1000CsvHref || pathwayCsvHref) && (
+          <SectionCard title="Downloads" subtitle="Export the current technical outputs for downstream analysis.">
+            <div className="download-grid">
+              <DownloadLink
+                disabled={!degCsvHref}
+                filename="deg_genes.csv"
+                href={degCsvHref}
+              >
+                DEG genes CSV
+              </DownloadLink>
+              <DownloadLink
+                disabled={!volcanoPath}
+                filename="deg_volcano.png"
+                href={volcanoPath ? buildAssetUrl(volcanoPath, { download: true }) : ''}
+              >
+                Volcano plot
+              </DownloadLink>
+              <DownloadLink
+                disabled={!l1000CsvHref}
+                filename="l1000cds2_results.csv"
+                href={l1000CsvHref}
+              >
+                L1000 table CSV
+              </DownloadLink>
+              <DownloadLink
+                disabled={!pathwayCsvHref}
+                filename="pathway_enrichment.csv"
+                href={pathwayCsvHref}
+              >
+                Pathway CSV
+              </DownloadLink>
+            </div>
+          </SectionCard>
+        )}
 
         {(pyvisHtmlPath || keggPath || volcanoPath) && (
           <SectionCard title="Visual outputs" subtitle="Generated artifacts are embedded here, matching the Streamlit workspace.">
@@ -567,7 +695,8 @@ function TechnicalPanel({ meta }) {
                 {literatureReferences.map((row, index) => (
                   <div className="reference-row" key={`${row.paper_id || 'ref'}-${index}`}>
                     <strong>{row.title || 'Untitled reference'}</strong>
-                    <span>{[row.source, row.year, row.pmid ? `PMID ${row.pmid}` : '', row.doi ? `DOI ${row.doi}` : ''].filter(Boolean).join(' | ')}</span>
+                    <span>{[row.authors, row.journal, row.source, row.year, row.pmid ? `PMID ${row.pmid}` : '', row.doi ? `DOI ${row.doi}` : '', row.url].filter(Boolean).join(' | ')}</span>
+                    {row.note ? <span>{row.note}</span> : null}
                   </div>
                 ))}
               </div>
@@ -575,24 +704,42 @@ function TechnicalPanel({ meta }) {
           </SectionCard>
         )}
 
-        {degRows.length > 0 && (
+        {(degUpRows.length > 0 || degDownRows.length > 0) && (
           <SectionCard title="Differential expression" subtitle="Top DEG rows from the current comparison.">
-            <div className="technical-table">
-              <div className="technical-row technical-head">
-                <span>Gene</span>
-                <span>log2FC</span>
-                <span>p-value</span>
-                <span>adj p-value</span>
-              </div>
-              {degRows.map((row, index) => (
-                <div className="technical-row" key={`${row.gene || 'deg'}-${index}`}>
-                  <span>{row.gene || '-'}</span>
-                  <span>{formatNumber(row.log2FoldChange)}</span>
-                  <span>{formatNumber(row.pvalue)}</span>
-                  <span>{formatNumber(row.pdj)}</span>
+            {degUpRows.length > 0 && (
+              <div className="technical-table">
+                <h4>Top up-regulated genes</h4>
+                <div className="technical-row technical-row-three technical-head">
+                  <span>Gene</span>
+                  <span>log2FC</span>
+                  <span>p-value</span>
                 </div>
-              ))}
-            </div>
+                {degUpRows.map((row, index) => (
+                  <div className="technical-row technical-row-three" key={`${row.gene || 'up-deg'}-${index}`}>
+                    <span>{row.gene || '-'}</span>
+                    <span>{formatNumber(row.log2FoldChange)}</span>
+                    <span>{formatNumber(row.pvalue)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {degDownRows.length > 0 && (
+              <div className="technical-table">
+                <h4>Top down-regulated genes</h4>
+                <div className="technical-row technical-row-three technical-head">
+                  <span>Gene</span>
+                  <span>log2FC</span>
+                  <span>p-value</span>
+                </div>
+                {degDownRows.map((row, index) => (
+                  <div className="technical-row technical-row-three" key={`${row.gene || 'down-deg'}-${index}`}>
+                    <span>{row.gene || '-'}</span>
+                    <span>{formatNumber(row.log2FoldChange)}</span>
+                    <span>{formatNumber(row.pvalue)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </SectionCard>
         )}
 

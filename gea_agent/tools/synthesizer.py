@@ -16,20 +16,85 @@ def _compact_text(value: Any, *, limit: int) -> str:
     return text[: max(0, limit - 3)] + "..."
 
 
+def _message_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content") or ""
+                if text:
+                    parts.append(str(text))
+            elif item not in (None, ""):
+                parts.append(str(item))
+        return "\n".join(part.strip() for part in parts if part.strip()).strip()
+    if isinstance(content, dict):
+        return str(content.get("text") or content.get("content") or "").strip()
+    return str(content or "").strip()
+
+
 def _compact_deg_analysis(deg_analysis: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(deg_analysis, dict):
         return None
 
     rows = deg_analysis.get("rows")
     genes = deg_analysis.get("genes", [])
-    compact_rows: list[dict[str, Any]] = []
+    up_rows = deg_analysis.get("upregulated_rows")
+    down_rows = deg_analysis.get("downregulated_rows")
+
+    def compact_rows(source: Any) -> list[dict[str, Any]]:
+        compact: list[dict[str, Any]] = []
+        if isinstance(source, list):
+            for row in source[:10]:
+                if not isinstance(row, dict):
+                    continue
+                compact.append(
+                    {
+                        "g": row.get("gene") or row.get("hgnc_symbol") or row.get("external_gene_name") or row.get("Ensembl"),
+                        "l2fc": row.get("log2FoldChange"),
+                        "p": row.get("pvalue"),
+                    }
+                )
+        return compact
+
+    compact_up_rows = compact_rows(up_rows)
+    compact_down_rows = compact_rows(down_rows)
+
+    if not compact_up_rows or not compact_down_rows:
+        fallback_up: list[dict[str, Any]] = []
+        fallback_down: list[dict[str, Any]] = []
+        if isinstance(rows, list):
+            sorted_rows = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    log2fc = float(row.get("log2FoldChange"))
+                except Exception:
+                    continue
+                sorted_rows.append((log2fc, row))
+            fallback_up = [
+                row
+                for log2fc, row in sorted(sorted_rows, key=lambda item: item[0], reverse=True)
+                if log2fc > 0
+            ]
+            fallback_down = [
+                row
+                for log2fc, row in sorted(sorted_rows, key=lambda item: item[0])
+                if log2fc < 0
+            ]
+        compact_up_rows = compact_up_rows or compact_rows(fallback_up)
+        compact_down_rows = compact_down_rows or compact_rows(fallback_down)
+
+    compact_mixed_rows: list[dict[str, Any]] = []
     if isinstance(rows, list):
         for row in rows[:10]:
             if not isinstance(row, dict):
                 continue
-            compact_rows.append(
+            compact_mixed_rows.append(
                 {
-                    "g": row.get("hgnc_symbol") or row.get("external_gene_name") or row.get("Ensembl"),
+                    "g": row.get("gene") or row.get("hgnc_symbol") or row.get("external_gene_name") or row.get("Ensembl"),
                     "l2fc": row.get("log2FoldChange"),
                     "p": row.get("pvalue"),
                 }
@@ -42,7 +107,9 @@ def _compact_deg_analysis(deg_analysis: dict[str, Any] | None) -> dict[str, Any]
         "padj": deg_analysis.get("padj"),
         "thresholds_applied_post_hoc": deg_analysis.get("thresholds_applied_post_hoc"),
         "genes": genes[:10] if isinstance(genes, list) else [],
-        "rows": compact_rows,
+        "up_rows": compact_up_rows,
+        "down_rows": compact_down_rows,
+        "rows": compact_mixed_rows,
     }
 
 
@@ -352,6 +419,126 @@ def _compact_literature(
     return out or None
 
 
+def _compact_memory_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+
+    compact: dict[str, Any] = {
+        "status": result.get("status"),
+        "field": result.get("field") or result.get("requested_field") or result.get("resolved_field"),
+        "field_length": result.get("field_length"),
+        "selection_mode": result.get("selection_mode"),
+        "top_n": result.get("top_n"),
+        "bottom_n": result.get("bottom_n"),
+        "answer": result.get("answer"),
+        "message": result.get("message"),
+    }
+
+    selected_term = result.get("selected_term")
+    if isinstance(selected_term, dict):
+        compact["selected_term"] = {
+            "library": selected_term.get("library"),
+            "term": selected_term.get("term"),
+            "rank": selected_term.get("rank"),
+        }
+
+    selected_values = result.get("selected_values")
+    if isinstance(selected_values, list):
+        compact["selected_count"] = len(selected_values)
+        compact["selected_values"] = selected_values[:30]
+
+    selected_genes = result.get("selected_gene_candidates")
+    if isinstance(selected_genes, list):
+        compact["selected_gene_candidates"] = selected_genes[:50]
+
+    intersection = result.get("intersection_genes")
+    if isinstance(intersection, list):
+        compact["intersection_genes"] = intersection[:50]
+
+    pathway_genes = result.get("pathway_genes")
+    if isinstance(pathway_genes, list):
+        compact["pathway_genes"] = pathway_genes[:50]
+
+    deg_genes = result.get("deg_genes")
+    if isinstance(deg_genes, list):
+        compact["deg_genes"] = deg_genes[:50]
+
+    inspections = result.get("inspections")
+    if isinstance(inspections, list):
+        compact["inspections"] = inspections[:20]
+
+    return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
+
+
+def _fallback_answer(payload: dict[str, Any]) -> str:
+    arm = str(payload.get("arm") or "general")
+    lines: list[str] = ["**Summary**"]
+
+    memory = payload.get("memory")
+    if isinstance(memory, dict) and memory:
+        field = memory.get("field")
+        selected = memory.get("selected_values")
+        intersection = memory.get("intersection_genes")
+        if field and selected:
+            lines.append(
+                f"Selected {len(selected) if isinstance(selected, list) else memory.get('selected_count', 'the requested')} item(s) from `{field}`."
+            )
+            if isinstance(selected, list):
+                lines.append("")
+                lines.append("**Selected Values**")
+                lines.append(", ".join(str(value) for value in selected[:30]))
+            return "\n".join(lines).strip()
+        if isinstance(intersection, list) and intersection:
+            lines.append(f"Found {len(intersection)} overlapping gene(s).")
+            lines.append("")
+            lines.append("**Genes**")
+            lines.append(", ".join(str(value) for value in intersection[:50]))
+            return "\n".join(lines).strip()
+        raw_answer = str(memory.get("answer") or memory.get("message") or "").strip()
+        if raw_answer:
+            lines.append(raw_answer)
+            return "\n".join(lines).strip()
+
+    enrichr = payload.get("enr")
+    if isinstance(enrichr, dict) and enrichr:
+        lines.append("Pathway enrichment results were generated.")
+        lines.append("")
+        lines.append("**Top Terms**")
+        for library, terms in list(enrichr.items())[:4]:
+            if not isinstance(terms, list) or not terms:
+                continue
+            first = terms[0] if isinstance(terms[0], dict) else {}
+            term = first.get("t") or first.get("term") or "top returned term"
+            genes = first.get("genes")
+            suffix = f" ({len(genes)} overlapping genes)" if isinstance(genes, list) else ""
+            lines.append(f"- {library}: {term}{suffix}")
+        return "\n".join(lines).strip()
+
+    deg = payload.get("deg")
+    if isinstance(deg, dict) and deg:
+        count = deg.get("n") or len(deg.get("genes") or [])
+        lines.append(f"Differential expression analysis completed with {count} retained row(s).")
+        for title, key in (("Top Up-Regulated Genes", "up_rows"), ("Top Down-Regulated Genes", "down_rows")):
+            rows = deg.get(key)
+            if not isinstance(rows, list) or not rows:
+                continue
+            lines.append("")
+            lines.append(f"**{title}**")
+            lines.append("| Gene | log2FC | p-value |")
+            lines.append("|---|---:|---:|")
+            for row in rows[:10]:
+                if not isinstance(row, dict):
+                    continue
+                lines.append(f"| {row.get('g', '')} | {row.get('l2fc', '')} | {row.get('p', '')} |")
+        return "\n".join(lines).strip()
+
+    if arm == "general":
+        lines.append("The agent completed the requested step, but there was not enough structured output to produce a detailed summary.")
+    else:
+        lines.append(f"The `{arm}` result was generated, but no additional summary text was returned.")
+    return "\n".join(lines).strip()
+
+
 def synthesize_technical_response(
     *,
     user_query: str,
@@ -368,6 +555,9 @@ def synthesize_technical_response(
     literature_key_points: list[dict[str, Any]] | None = None,
     literature_references: list[dict[str, Any]] | None = None,
     literature_summary: str | None = None,
+    memory_lookup_result: dict[str, Any] | None = None,
+    state_lookup_result: dict[str, Any] | None = None,
+    memory_slice_result: dict[str, Any] | None = None,
 ) -> str:
     llm = get_llm()
 
@@ -390,6 +580,13 @@ def synthesize_technical_response(
         payload["ot"] = _compact_opentargets(deg_analysis)
     elif arm == "primekg":
         payload["kg"] = _compact_primekg(deg_analysis)
+    elif arm in {"memory_lookup", "state_lookup", "memory_slice"}:
+        if arm == "memory_lookup":
+            payload["memory"] = _compact_memory_result(memory_lookup_result or deg_analysis)
+        elif arm == "state_lookup":
+            payload["memory"] = _compact_memory_result(state_lookup_result or deg_analysis)
+        else:
+            payload["memory"] = _compact_memory_result(memory_slice_result or deg_analysis)
     elif arm == "memory_rwr":
         payload["rwr"] = _compact_rwr(rwr_genes)
         payload["net"] = {"n": graph.number_of_nodes(), "e": graph.number_of_edges()}
@@ -405,38 +602,48 @@ def synthesize_technical_response(
         payload["rwr"] = _compact_rwr(rwr_genes)
         payload["net"] = {"n": graph.number_of_nodes(), "e": graph.number_of_edges()}
 
-    resp = llm.invoke(
-        [
-            (
-                "system",
-                "You are the final synthesis stage for a biomedical analysis agent. "
-                "Write the final user-facing answer using only the structured payload you receive. "
-                "If a field is absent or empty, omit it instead of guessing. "
-                "Do not mention analysis arms, tool names, prompts, routing logic, or hidden intermediate steps. "
-                "Return plain text only, not JSON and not markdown code fences. "
-                "Answer the user's question directly in clear, professional technical language. "
-                "Format the response as a polished short report using Markdown. "
-                "Use bold section headings such as `**Summary**`, `**Key Findings**`, `**Interpretation**`, `**Evidence**`, and `**References**` when relevant. "
-                "Always start with a brief high-signal summary section. "
-                "When multiple findings are present, prefer short bullet lists under a bold heading instead of dense paragraphs. "
-                "Use concise paragraphs for interpretation and implications. "
-                "Lead with the highest-signal findings, then add only the most relevant supporting detail. "
-                "State uncertainty explicitly whenever evidence is limited, mixed, or indirect. "
-                "Sound like a professional biomedical analyst: precise, neutral, and well organized. "
-                "Avoid casual phrasing, filler, repetition, and overly conversational wording. "
-                "Respect the active context: "
-                "for `srp`, summarize only DEG plus any provided enrichment context; "
-                "for `l1000cds2`, summarize only the returned small-molecule matches, requested cell-line filter, and whether the result reflects reversal or mimic mode; "
-                "for `pubchem`, identify only genes, pathways, and diseases that are explicitly supported or reasonably inferable from the provided PubChem text and annotations; organize that answer with short `Genes`, `Pathways`, and `Diseases` labels when possible; if PubChem content does not support one of those categories, say so clearly; "
-                "for `primekg`, answer only from the provided knowledge-graph relationships; "
-                "for `opentargets`, summarize only the association evidence provided; "
-                "for `memory_rwr`, summarize only the stored-gene RWR prioritization; "
-                "for `disease`, summarize literature findings first, then relevant network or enrichment context if present. "
-                "For the general or disease-style response, prefer this order when supported by the payload: `**Summary**`, `**Key Findings**`, `**Interpretation**`, and `**References**`. "
-                "Keep the answer concise but scientifically useful. "
-                "When literature references are available, end with a short `**References**` section.",
-            ),
-            ("user", json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
-        ]
-    )
-    return getattr(resp, "content", "")
+    try:
+        resp = llm.invoke(
+            [
+                (
+                    "system",
+                    "You are the final synthesis stage for a biomedical analysis agent. "
+                    "Write the final user-facing answer using only the structured payload you receive. "
+                    "If a field is absent or empty, omit it instead of guessing. "
+                    "Do not mention analysis arms, tool names, prompts, routing logic, or hidden intermediate steps. "
+                    "Return plain text only, not JSON and not markdown code fences. "
+                    "Answer the user's question directly in clear, professional technical language. "
+                    "Format the response as a polished technical report using Markdown. "
+                    "Use bold section headings such as `**Summary**`, `**Key Findings**`, `**Interpretation**`, `**Evidence**`, and `**References**` when relevant. "
+                    "Start with a clear summary, then provide comprehensive supporting detail when structured evidence is available. "
+                    "When multiple findings are present, use organized bullets or tables-in-prose style sections so the answer remains readable while still being thorough. "
+                    "Include methods/context, key results, notable genes or terms, interpretation, caveats, and practical next steps when those are supported by the payload. "
+                    "Do not compress away important evidence solely for brevity. "
+                    "Lead with the highest-signal findings, then add relevant supporting detail from the payload. "
+                    "State uncertainty explicitly whenever evidence is limited, mixed, or indirect. "
+                    "Sound like a professional biomedical analyst: precise, neutral, and well organized. "
+                    "Avoid casual phrasing, filler, repetition, and overly conversational wording. "
+                    "Respect the active context: "
+                    "for `srp`, summarize only DEG plus any provided enrichment context, and include two separate Markdown tables named `Top Up-Regulated Genes` and `Top Down-Regulated Genes` using the provided `up_rows` and `down_rows`; each table should include Gene, log2FC, and p-value columns and at most 10 rows; if lof2fc and padj are not given by user say that the default values have been used; "
+                    "for `visualize`, if payload contains *_path fields, just say that the visualization was generated successfully; "
+                    "for `l1000cds2`, summarize only the returned small-molecule matches, requested cell-line filter, and whether the result reflects reversal or mimic mode; "
+                    "for `pubchem`, identify only genes, pathways, and diseases that are explicitly supported or reasonably inferable from the provided PubChem text and annotations; organize that answer with `Genes`, `Pathways`, and `Diseases` labels when possible; if PubChem content does not support one of those categories, say so clearly; "
+                    "for `primekg`, answer only from the provided knowledge-graph relationships; "
+                    "for `opentargets`, summarize only the association evidence provided; "
+                    "for `memory_lookup`, `state_lookup`, and `memory_slice`, convert the stored values into a clean readable answer and avoid raw JSON unless the user asked for literal state; "
+                    "for `pathway`, summarize the enrichment results from `enr`, highlighting the top terms, libraries, adjusted p-values when available, and overlapping genes; "
+                    "for pathway enrichment, summarize the top enriched terms from `enr` even when the active arm is `general`; "
+                    "for `memory_rwr`, summarize only the stored-gene RWR prioritization; "
+                    "for `research_literature` and `literature`, always synthesize the literature summary, key points, and references into a polished final answer; do not return raw JSON, raw tool output, or unsynthesized citation lists; "
+                    "for `disease`, summarize literature findings first, then relevant network or enrichment context if present. "
+                    "For the general, literature, research-literature, or disease-style response, prefer this order when supported by the payload: `**Summary**`, `**Key Findings**`, `**Interpretation**`, and `**References**`. "
+                    "The answer may be comprehensive; prioritize completeness, traceability, and scientific usefulness over brevity. "
+                    "When literature references are available, end with a `**References**` section.",
+                ),
+                ("user", json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
+            ]
+        )
+        answer = _message_content_text(getattr(resp, "content", ""))
+    except Exception:
+        answer = ""
+    return answer or _fallback_answer(payload)

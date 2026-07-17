@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -21,6 +22,17 @@ _DEG_COLUMNS = [
     "pvalue",
     "pdj",
 ]
+
+_SAVED_DEG_COLUMNS = [
+    "hgnc_symbol",
+    "entrezgene_id",
+    "entrezgene_accession",
+    "description",
+    "log2FoldChange",
+    "pvalue",
+]
+
+_DEG_NUMERIC_COLUMNS = {"log2FoldChange"}
 
 
 def _placeholder_path(value: str) -> bool:
@@ -57,7 +69,40 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, str]:
         clean_key = str(key).strip()
         clean_value = "" if value is None else str(value).strip()
         normalized[clean_key] = clean_value
+    if "pdj" not in normalized and "padj" in normalized:
+        normalized["pdj"] = normalized.get("padj", "")
     return normalized
+
+
+def _truncate_decimal_text(value: Any, places: int = 3) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return ""
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    if not math.isfinite(number):
+        return text
+    factor = 10**places
+    truncated = math.trunc(number * factor) / factor
+    return f"{truncated:.{places}f}"
+
+
+def _format_deg_numeric_columns(row: dict[str, str]) -> dict[str, str]:
+    formatted = dict(row)
+    for column in _DEG_NUMERIC_COLUMNS:
+        if column in formatted:
+            formatted[column] = _truncate_decimal_text(formatted.get(column, ""))
+    return formatted
+
+
+def _write_clean_deg_csv(csv_path: Path, rows: list[dict[str, str]]) -> None:
+    with csv_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_SAVED_DEG_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({column: row.get(column, "") for column in _SAVED_DEG_COLUMNS})
 
 
 def _gene_label(row: dict[str, str]) -> str:
@@ -84,12 +129,14 @@ def _read_deg_csv(csv_path: Path) -> dict[str, Any]:
         genes: list[str] = []
 
         for raw_row in reader:
-            row = _normalize_row(raw_row)
+            row = _format_deg_numeric_columns(_normalize_row(raw_row))
             rows.append({column: row.get(column, "") for column in _DEG_COLUMNS})
 
             label = _gene_label(row)
             if label and label not in genes:
                 genes.append(label)
+
+    _write_clean_deg_csv(csv_path, rows)
 
     return {
         "status": "ok",

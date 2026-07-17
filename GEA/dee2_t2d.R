@@ -34,6 +34,38 @@ cat("Padj:", pval, "\n")
 cat("SRP IDs:\n")
 print(target_srp)
 
+retry_download <- function(expr) {
+  for (i in 1:2) {
+    result <- try(eval.parent(substitute(expr)), silent = TRUE)
+    if (!inherits(result, "try-error")) {
+      return(result)
+    }
+
+    if (i == 1) {
+      message("First attempt failed. Retrying...")
+      Sys.sleep(2)
+    }
+  }
+
+  stop(result)
+}
+
+retry_void <- function(expr) {
+  for (i in 1:2) {
+    result <- try(eval.parent(substitute(expr)), silent = TRUE)
+    if (!inherits(result, "try-error")) {
+      return(invisible(NULL))
+    }
+
+    if (i == 1) {
+      message("First attempt failed. Retrying...")
+      Sys.sleep(2)
+    }
+  }
+
+  stop(result)
+}
+
 cache_dir <- "cache"
 
 if (!dir.exists(cache_dir)) {
@@ -97,11 +129,18 @@ for(i in seq_len(nrow(studies))) {
 
     message("Downloading: ", zipfile)
 
-    download.file(
+    # download.file(
+    #     url,
+    #     destfile = zipfile,
+    #     mode = "wb"
+    # )
+    retry_void(
+        download.file(
         url,
         destfile = zipfile,
         mode = "wb"
-    )
+      )
+)
 
     # Extract to study-specific folder
     exdir <- sprintf("%s_%s", srp, gse)
@@ -178,7 +217,8 @@ get_sra_metadata <- function(srp) {
     srp
   )
 
-  read.csv(runinfo_url)
+  # read.csv(runinfo_url)
+  retry_download(read.csv(runinfo_url))
 }
 
 # Function to retrieve treatment from BioSample
@@ -190,7 +230,8 @@ get_treatment_from_biosample <- function(biosample_acc) {
     "&retmode=json"
   )
 
-  search <- jsonlite::fromJSON(search_url)
+  # search <- jsonlite::fromJSON(search_url)
+  search <- retry_download(jsonlite::fromJSON(search_url))
 
   if (length(search$esearchresult$idlist) == 0)
     return(NA_character_)
@@ -203,10 +244,16 @@ get_treatment_from_biosample <- function(biosample_acc) {
     "&retmode=xml"
   )
 
+  # xml_txt <- paste(
+  #   readLines(fetch_url, warn = FALSE),
+  #   collapse = "\n"
+  # )
   xml_txt <- paste(
-    readLines(fetch_url, warn = FALSE),
+      retry_download(
+      readLines(fetch_url, warn = FALSE)
+    ),
     collapse = "\n"
-  )
+  ) 
 
   doc <- xmlParse(xml_txt, asText = TRUE)
 

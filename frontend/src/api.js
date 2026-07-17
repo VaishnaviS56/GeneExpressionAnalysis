@@ -86,11 +86,14 @@ export function sendMessage(chatId, content) {
   })
 }
 
-export function buildAssetUrl(path) {
+export function buildAssetUrl(path, options = {}) {
   const token = getToken()
   const params = new URLSearchParams({ path })
   if (token) {
     params.set('token', token)
+  }
+  if (options.download) {
+    params.set('download', '1')
   }
   return `${BASE_URL}/api/assets?${params.toString()}`
 }

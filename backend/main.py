@@ -115,10 +115,14 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/assets")
-def get_asset(path: str, _user=Depends(_get_user_from_header_or_query)):
+def get_asset(path: str, download: bool = Query(default=False), _user=Depends(_get_user_from_header_or_query)):
     asset_path = _resolve_asset_path(path)
     media_type, _ = mimetypes.guess_type(asset_path.name)
-    return FileResponse(asset_path, media_type=media_type or "application/octet-stream")
+    return FileResponse(
+        asset_path,
+        media_type=media_type or "application/octet-stream",
+        filename=asset_path.name if download else None,
+    )
 
 
 @app.post("/api/auth/register")

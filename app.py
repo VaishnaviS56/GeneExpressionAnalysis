@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import io
 from typing import Any
 
@@ -205,11 +206,199 @@ def _update_memory_from_meta(meta: dict[str, Any]) -> None:
         st.session_state.memory_slice_result = memory_slice_result
 
 
+def _csv_bytes(rows: list[dict[str, Any]], columns: list[str] | None = None) -> bytes:
+    if not rows:
+        return b""
+    resolved_columns = columns or sorted({str(key) for row in rows for key in row.keys()})
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=resolved_columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        normalized = {}
+        for column in resolved_columns:
+            value = row.get(column, "")
+            if isinstance(value, list):
+                normalized[column] = "; ".join(str(item) for item in value)
+            elif isinstance(value, dict):
+                normalized[column] = str(value)
+            else:
+                normalized[column] = "" if value is None else value
+        writer.writerow(normalized)
+    return buffer.getvalue().encode("utf-8")
+
+
+def _deg_download_rows(meta: dict[str, Any], deg_analysis: dict[str, Any] | None) -> list[dict[str, Any]]:
+    records = meta.get("deg_gene_records")
+    if isinstance(records, list) and records:
+        return [row for row in records if isinstance(row, dict)]
+    rows = deg_analysis.get("rows") if isinstance(deg_analysis, dict) else []
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
+    return []
+
+
+def _pathway_download_rows(enrichr: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(enrichr, dict):
+        return []
+    libs = enrichr.get("libraries")
+    if not isinstance(libs, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for library, terms in libs.items():
+        if not isinstance(terms, list):
+            continue
+        for rank, term in enumerate(terms, start=1):
+            if not isinstance(term, dict):
+                continue
+            overlapping = term.get("overlapping_genes") or term.get("genes") or []
+            rows.append(
+                {
+                    "library": library,
+                    "rank": rank,
+                    "term": term.get("term") or term.get("t"),
+                    "p_value": term.get("p_value") if term.get("p_value") is not None else term.get("p"),
+                    "adjusted_p_value": (
+                        term.get("adjusted_p_value")
+                        if term.get("adjusted_p_value") is not None
+                        else term.get("adj")
+                    ),
+                    "combined_score": (
+                        term.get("combined_score")
+                        if term.get("combined_score") is not None
+                        else term.get("cs")
+                    ),
+                    "overlapping_genes": overlapping if isinstance(overlapping, list) else [],
+                    "n_overlap_genes": term.get("n_overlap_genes") or (len(overlapping) if isinstance(overlapping, list) else ""),
+                }
+            )
+    return rows
+
+
+def _l1000_download_rows(l1000_result: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(l1000_result, dict):
+        return []
+    top_drugs = l1000_result.get("top_drugs")
+    if not isinstance(top_drugs, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for row in top_drugs:
+        if not isinstance(row, dict):
+            continue
+        rows.append(
+            {
+                "drug": row.get("name"),
+                "pert_id": row.get("pert_id"),
+                "best_rank": row.get("best_rank"),
+                "best_score": row.get("best_score"),
+                "signature_count": row.get("signature_count"),
+                "cell_lines": row.get("cell_lines") if isinstance(row.get("cell_lines"), list) else [],
+            }
+        )
+    return rows
+
+
+def _render_downloads(meta: dict[str, Any], graph: nx.Graph | None) -> None:
+    deg_analysis = meta.get("deg_analysis")
+    enrichr = meta.get("enrichr")
+    l1000_result = meta.get("l1000cds2_result")
+    volcano_plot_path = meta.get("volcano_plot_path")
+
+    deg_rows = _deg_download_rows(meta, deg_analysis if isinstance(deg_analysis, dict) else None)
+    pathway_rows = _pathway_download_rows(enrichr if isinstance(enrichr, dict) else None)
+    l1000_rows = _l1000_download_rows(l1000_result if isinstance(l1000_result, dict) else None)
+    has_graph = isinstance(graph, nx.Graph) and graph.number_of_nodes() > 0
+    has_volcano = isinstance(volcano_plot_path, str) and bool(volcano_plot_path.strip())
+
+    if not any((deg_rows, pathway_rows, l1000_rows, has_graph, has_volcano)):
+        return
+
+    download_specs: list[dict[str, Any]] = []
+    if deg_rows:
+        download_specs.append(
+            {
+                "label": "DEG genes CSV",
+                "data": _csv_bytes(
+                    deg_rows,
+                    ["gene", "log2FoldChange", "pvalue", "description"],
+                ),
+                "file_name": "deg_genes.csv",
+                "mime": "text/csv",
+                "key": "download_deg_genes_csv",
+            }
+        )
+    if has_volcano:
+        try:
+            with open(str(volcano_plot_path), "rb") as handle:
+                download_specs.append(
+                    {
+                        "label": "Volcano plot",
+                        "data": handle.read(),
+                        "file_name": "deg_volcano.png",
+                        "mime": "image/png",
+                        "key": "download_volcano_png",
+                    }
+                )
+        except FileNotFoundError:
+            st.caption("Volcano plot file is not available for download.")
+    if l1000_rows:
+        download_specs.append(
+            {
+                "label": "L1000 table CSV",
+                "data": _csv_bytes(l1000_rows, ["drug", "pert_id", "best_rank", "best_score", "signature_count", "cell_lines"]),
+                "file_name": "l1000cds2_results.csv",
+                "mime": "text/csv",
+                "key": "download_l1000_csv",
+            }
+        )
+    if pathway_rows:
+        download_specs.append(
+            {
+                "label": "Pathway CSV",
+                "data": _csv_bytes(
+                    pathway_rows,
+                    ["library", "rank", "term", "p_value", "adjusted_p_value", "combined_score", "overlapping_genes", "n_overlap_genes"],
+                ),
+                "file_name": "pathway_enrichment.csv",
+                "mime": "text/csv",
+                "key": "download_pathway_csv",
+            }
+        )
+    if has_graph:
+        buff = io.BytesIO()
+        nx.write_graphml(graph, buff)
+        download_specs.append(
+            {
+                "label": "STRING graph GraphML",
+                "data": buff.getvalue(),
+                "file_name": "string_network.graphml",
+                "mime": "application/graphml+xml",
+                "key": "download_string_graphml",
+            }
+        )
+
+    if not download_specs:
+        return
+
+    st.subheader("Downloads")
+    cols = st.columns([1.2] * len(download_specs) + [4])
+    for col, spec in zip(cols, download_specs):
+        with col:
+            st.download_button(
+                spec["label"],
+                data=spec["data"],
+                file_name=spec["file_name"],
+                mime=spec["mime"],
+                use_container_width=True,
+                key=spec["key"],
+            )
+
+
 def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> None:
     analysis_arm = meta.get("analysis_arm") or "disease"
     disease_name = meta.get("disease_name")
     openalex_papers = meta.get("openalex_papers")
     ranked_papers = meta.get("ranked_openalex_papers")
+    literature_references = meta.get("literature_references")
     deg_analysis = meta.get("deg_analysis")
     rwr = meta.get("rwr_genes")
     enrichr = meta.get("enrichr")
@@ -242,6 +431,27 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
         st.caption(f"{len(openalex_papers)} papers scanned for genes.")
         st.table([{"title": paper.get("title"), "year": paper.get("year")} for paper in openalex_papers[:5] if isinstance(paper, dict)])
 
+    if analysis_arm != "srp" and isinstance(literature_references, list) and literature_references:
+        st.subheader("References")
+        preview = []
+        for ref in literature_references[:10]:
+            if not isinstance(ref, dict):
+                continue
+            preview.append(
+                {
+                    "title": ref.get("title"),
+                    "authors": ref.get("authors"),
+                    "journal": ref.get("journal"),
+                    "year": ref.get("year"),
+                    "doi": ref.get("doi"),
+                    "pmid": ref.get("pmid"),
+                    "source": ref.get("source"),
+                    "note": ref.get("note"),
+                }
+            )
+        if preview:
+            st.table(preview)
+
     if isinstance(deg_analysis, dict) and analysis_arm == "srp":
         rows = deg_analysis.get("rows")
         genes = deg_analysis.get("genes", [])
@@ -258,7 +468,15 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
             st.caption(message)
         if isinstance(genes, list) and genes:
             st.caption(f"{len(genes)} genes detected from the DEG output.")
-        if isinstance(rows, list) and rows:
+        up_rows = deg_analysis.get("upregulated_rows")
+        down_rows = deg_analysis.get("downregulated_rows")
+        if isinstance(up_rows, list) and up_rows:
+            st.markdown("**Top up-regulated genes**")
+            st.table(up_rows[:10])
+        if isinstance(down_rows, list) and down_rows:
+            st.markdown("**Top down-regulated genes**")
+            st.table(down_rows[:10])
+        if not (isinstance(up_rows, list) and up_rows) and not (isinstance(down_rows, list) and down_rows) and isinstance(rows, list) and rows:
             st.table(rows[:10])
 
     if analysis_arm != "srp" and isinstance(rwr, list) and rwr:
@@ -378,16 +596,7 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
                 ]
             )
 
-    if isinstance(graph, nx.Graph) and graph.number_of_nodes() > 0:
-        st.subheader("Downloads")
-        buff = io.BytesIO()
-        nx.write_graphml(graph, buff)
-        st.download_button(
-            "Download STRING graph (GraphML)",
-            data=buff.getvalue(),
-            file_name="string_network.graphml",
-            mime="application/graphml+xml",
-        )
+    _render_downloads(meta, graph)
 
     pyvis_html_path = meta.get("pyvis_html_path")
     if isinstance(pyvis_html_path, str) and pyvis_html_path:

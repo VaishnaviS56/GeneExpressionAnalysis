@@ -76,7 +76,10 @@ def init_db() -> None:
                 analysis_arm TEXT DEFAULT 'general',
                 srp_ids_json TEXT NOT NULL DEFAULT '[]',
                 memory_deg_genes_json TEXT NOT NULL DEFAULT '[]',
+                memory_upregulated_genes_json TEXT NOT NULL DEFAULT '[]',
+                memory_downregulated_genes_json TEXT NOT NULL DEFAULT '[]',
                 memory_deg_analysis_json TEXT NOT NULL DEFAULT '{}',
+                memory_deg_gene_records_json TEXT NOT NULL DEFAULT '[]',
                 memory_control_name TEXT NOT NULL DEFAULT '',
                 memory_test_name TEXT NOT NULL DEFAULT '',
                 memory_enrichr_json TEXT NOT NULL DEFAULT '{}',
@@ -84,6 +87,11 @@ def init_db() -> None:
                 memory_rwr_genes_json TEXT NOT NULL DEFAULT '[]',
                 memory_disease_name TEXT NOT NULL DEFAULT '',
                 memory_openalex_genes_json TEXT NOT NULL DEFAULT '[]',
+                memory_opentargets_results_json TEXT NOT NULL DEFAULT '[]',
+                memory_l1000cds2_result_json TEXT NOT NULL DEFAULT '{}',
+                memory_pubchem_result_json TEXT NOT NULL DEFAULT '{}',
+                memory_hypothesis_result_json TEXT NOT NULL DEFAULT '{}',
+                memory_slice_result_json TEXT NOT NULL DEFAULT '{}',
                 last_meta_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -103,6 +111,12 @@ def init_db() -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(chats)").fetchall()}
         if "agent_type" not in columns:
             conn.execute("ALTER TABLE chats ADD COLUMN agent_type TEXT NOT NULL DEFAULT 'general'")
+        if "memory_upregulated_genes_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_upregulated_genes_json TEXT NOT NULL DEFAULT '[]'")
+        if "memory_downregulated_genes_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_downregulated_genes_json TEXT NOT NULL DEFAULT '[]'")
+        if "memory_deg_gene_records_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_deg_gene_records_json TEXT NOT NULL DEFAULT '[]'")
         if "memory_control_name" not in columns:
             conn.execute("ALTER TABLE chats ADD COLUMN memory_control_name TEXT NOT NULL DEFAULT ''")
         if "memory_test_name" not in columns:
@@ -113,6 +127,16 @@ def init_db() -> None:
             conn.execute("ALTER TABLE chats ADD COLUMN memory_rwr_seed_genes_json TEXT NOT NULL DEFAULT '[]'")
         if "memory_rwr_genes_json" not in columns:
             conn.execute("ALTER TABLE chats ADD COLUMN memory_rwr_genes_json TEXT NOT NULL DEFAULT '[]'")
+        if "memory_opentargets_results_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_opentargets_results_json TEXT NOT NULL DEFAULT '[]'")
+        if "memory_l1000cds2_result_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_l1000cds2_result_json TEXT NOT NULL DEFAULT '{}'")
+        if "memory_pubchem_result_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_pubchem_result_json TEXT NOT NULL DEFAULT '{}'")
+        if "memory_hypothesis_result_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_hypothesis_result_json TEXT NOT NULL DEFAULT '{}'")
+        if "memory_slice_result_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_slice_result_json TEXT NOT NULL DEFAULT '{}'")
         if "last_meta_json" not in columns:
             conn.execute("ALTER TABLE chats ADD COLUMN last_meta_json TEXT NOT NULL DEFAULT '{}'")
 

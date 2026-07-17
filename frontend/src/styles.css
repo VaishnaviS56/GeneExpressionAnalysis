@@ -211,6 +211,11 @@ a {
   font-size: 0.82rem;
 }
 
+.ghost.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .primary:hover,
 .ghost:hover,
 .chat-item:hover,
@@ -701,6 +706,17 @@ button:disabled {
 .artifact-grid {
   display: grid;
   gap: 14px;
+}
+
+.download-grid,
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.download-grid {
+  align-items: center;
 }
 
 .artifact-block {

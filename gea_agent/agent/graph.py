@@ -54,7 +54,7 @@ Tool selection guide:
 5. identify_disease_from_query: Use when the next step depends on a disease label and the query implies one but does not state it in a clean structured way.
 6. primekg_query: Use for local biomedical graph questions, especially multi-hop relationship discovery across genes, drugs, diseases, phenotypes, and pathways.
 7. opentargets_association: Use for gene-to-disease association evidence, disease checks for a gene or gene set, and drug associations tied to a gene.
-8. l1000cds2_query: Use when the user asks for LINCS/L1000/L1000CDS2 drug matches or reversal compounds based on up-regulated and down-regulated genes. Prefer stored DEG memory for the gene lists and extract cell-line names from the query when present.
+8. l1000cds2_query: Use when the user asks for LINCS/L1000/L1000CDS2 drug matches with drug induced gene expression or reversal compounds based on up-regulated and down-regulated genes. Prefer stored DEG memory for the gene lists and extract cell-line names from the query when present.
 9. pubchem_drug_lookup: Use when the user asks about a drug or compound and wants PubChem-derived details, especially if they want likely genes, pathways, or diseases identified from the PubChem annotations.
 10. hypothesis: Use when the user asks for experimental validation ideas, mechanistic hypotheses, or follow-up experiments. This tool has access to the full prior user/assistant transcript plus stored memory and can include literature references if similar experiments appear to have already been reported.
 11. visualize: Use only when the user explicitly asks for a visual output such as a network, KEGG pathway image, or volcano plot.
@@ -64,7 +64,9 @@ Tool selection guide:
 
 Operational guidance:
 - If the user asks a simple non-technical question or casual follow-up, answer directly without tools.
-- Call at most one specialist at a time. After each tool result, reassess whether the user is already answered or whether one additional tool is necessary.
+- Call at most one specialist at a time. After each tool result, reassess whether the user is answered or whether another specialist would materially improve the result.
+- Credible multi-specialist chains are encouraged when the user asks for a workflow, for example DEG -> pathway -> visualization, DEG -> RWR -> PrimeKG/OpenTargets, literature -> RWR, or L1000CDS2 -> PubChem.
+- Keep chains bounded and purposeful. Do not call a specialist just because it is available; each call must add evidence or an artifact the user requested.
 - Never call the `literature` specialist more than two times for a single user query. Reuse retrieved papers, references, and summaries after that limit.
 - Prefer recovering missing prerequisites with tools instead of guessing. Example: use `literature` to get disease genes, gene-function evidence, or paper support before `pathway` or `rwr_analysis`.
 - Prefer memory and current state before recomputing the same result.
@@ -90,12 +92,37 @@ def _compact_text(value: Any, *, limit: int = 240) -> str:
     return text[: max(0, limit - 3)] + "..."
 
 
+def _message_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content") or ""
+                if text:
+                    parts.append(str(text))
+            elif item not in (None, ""):
+                parts.append(str(item))
+        return "\n".join(part.strip() for part in parts if part.strip()).strip()
+    if isinstance(content, dict):
+        return str(content.get("text") or content.get("content") or "").strip()
+    return str(content or "").strip()
+
+
 def _ensure_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
 def _ensure_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
 
 
 def _merge_unique(*groups: list[str] | tuple[str, ...] | None) -> list[str]:
@@ -582,6 +609,8 @@ def _should_force_pathway_tool(state: AgentState) -> bool:
     query = str(state.get("query") or "")
     if not _looks_like_pathway_enrichment_query(query):
         return False
+    if _ensure_dict(state.get("enrichr")).get("libraries") or _ensure_dict(state.get("memory_enrichr")).get("libraries"):
+        return False
     genes_in_query = [
         str(value).strip().upper()
         for value in extract_genes_from_text(query, mode="strict")
@@ -683,14 +712,11 @@ def _resolve_rwr_source_genes(
     prefer_seed_genes: bool = False,
 ) -> tuple[list[str], str]:
     query = str(args.get("text") or state.get("query") or "")
-    direct_key = "seed_genes" if prefer_seed_genes else "genes"
-    direct_genes = args.get(direct_key)
-    if isinstance(direct_genes, list) and direct_genes:
-        return [str(value).strip().upper() for value in direct_genes if str(value).strip()], "tool_args"
-
-    sliced_genes = _memory_slice_gene_candidates(state)
-    if sliced_genes:
-        return sliced_genes, "memory_slice"
+    direct_keys = ("seed_genes", "genes") if prefer_seed_genes else ("genes", "seed_genes")
+    for direct_key in direct_keys:
+        direct_genes = args.get(direct_key)
+        if isinstance(direct_genes, list) and direct_genes:
+            return [str(value).strip().upper() for value in direct_genes if str(value).strip()], "tool_args"
 
     if not _memory_gene_query_requested(query):
         query_genes = [
@@ -700,6 +726,10 @@ def _resolve_rwr_source_genes(
         ]
         if query_genes:
             return list(dict.fromkeys(query_genes)), "query_genes"
+
+    sliced_genes = _memory_slice_gene_candidates(state)
+    if sliced_genes:
+        return sliced_genes, "memory_slice"
 
     memory_lookup_genes = _memory_lookup_gene_candidates(state)
     if memory_lookup_genes:
@@ -883,6 +913,94 @@ def _normalize_text_token(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
 
+def _normalize_pathway_query_token(value: Any) -> str:
+    normalized = _normalize_text_token(value)
+    stopwords = {
+        "the",
+        "a",
+        "an",
+        "please",
+        "can",
+        "you",
+        "visualize",
+        "visualise",
+        "show",
+        "plot",
+        "render",
+        "pathway",
+        "pathways",
+        "for",
+        "of",
+        "using",
+        "stored",
+        "memory",
+    }
+    return " ".join(token for token in normalized.split() if token and token not in stopwords)
+
+
+def _pathway_match_score(label: str, desired: str, query: str) -> int:
+    label_norm = _normalize_pathway_query_token(label)
+    desired_norm = _normalize_pathway_query_token(desired)
+    query_norm = _normalize_pathway_query_token(query)
+    if not label_norm:
+        return 0
+
+    candidates = [value for value in (desired_norm, query_norm) if value]
+    best = 0
+    for candidate in candidates:
+        if label_norm == candidate:
+            best = max(best, 1200)
+        elif candidate in label_norm or label_norm in candidate:
+            best = max(best, 900 + min(len(candidate), len(label_norm)))
+        else:
+            label_tokens = set(label_norm.split())
+            candidate_tokens = set(candidate.split())
+            if not candidate_tokens:
+                continue
+            overlap = label_tokens.intersection(candidate_tokens)
+            if overlap and len(overlap) >= min(2, len(candidate_tokens)):
+                best = max(best, 500 + (100 * len(overlap)))
+    return best
+
+
+def _enrichr_libraries_from_state(state: AgentState) -> dict[str, Any]:
+    for candidate in (state.get("enrichr"), state.get("memory_enrichr")):
+        if not isinstance(candidate, dict):
+            continue
+        libraries = candidate.get("libraries")
+        if isinstance(libraries, dict) and libraries:
+            return libraries
+        top_pathways = candidate.get("top_pathways")
+        if isinstance(top_pathways, dict) and top_pathways:
+            return top_pathways
+    return {}
+
+
+def _term_overlapping_genes(term: dict[str, Any] | None) -> list[str]:
+    if not isinstance(term, dict):
+        return []
+    raw = (
+        term.get("overlapping_genes")
+        or term.get("overlap_genes")
+        or term.get("genes")
+        or term.get("Overlap")
+        or []
+    )
+    if isinstance(raw, str):
+        values = re.split(r"[;,]", raw)
+    elif isinstance(raw, list):
+        values = raw
+    else:
+        values = []
+    return list(
+        dict.fromkeys(
+            str(value).strip().upper()
+            for value in values
+            if str(value).strip()
+        )
+    )
+
+
 def _extract_requested_pathway_name(text: str | None) -> str:
     query = " ".join(str(text or "").split()).strip()
     if not query:
@@ -893,6 +1011,7 @@ def _extract_requested_pathway_name(text: str | None) -> str:
         r"\bgenes\s+for\s+(.+)$",
         r"\bfor\s+(.+)$",
         r"(?:visuali[sz]e|show|plot|render)\s+(?:the\s+)?(.+?)\s+pathway\b",
+        r"(?:visuali[sz]e|show|plot|render)\s+(?:the\s+)?(.+)$",
         r"\bpathway\s+(?:called|named)\s+(.+)$",
         r"\b(.+?)\s+pathway\b",
     )
@@ -904,6 +1023,48 @@ def _extract_requested_pathway_name(text: str | None) -> str:
         if candidate:
             return candidate
     return ""
+
+
+def _should_force_stored_pathway_visualization(state: AgentState) -> bool:
+    query = str(state.get("query") or "")
+    query_norm = _normalize_text_token(query)
+    if not query_norm:
+        return False
+    if not any(token in query_norm for token in ("visualize", "visualise", "show", "plot", "render")):
+        return False
+
+    libraries = _enrichr_libraries_from_state(state)
+    if not libraries:
+        return False
+
+    pathway_term = _extract_requested_pathway_name(query)
+    selected_term, _selected_library, _selected_rank = _find_enrichr_term_from_state(
+        state,
+        pathway_term,
+        query=query,
+    )
+    return bool(
+        isinstance(selected_term, dict)
+        and _term_overlapping_genes(selected_term)
+    )
+
+
+def _should_force_rwr_visualization(state: AgentState) -> bool:
+    query_norm = _normalize_text_token(state.get("query"))
+    if not query_norm:
+        return False
+    wants_visual = any(token in query_norm for token in ("visualize", "visualise", "show", "plot", "render"))
+    wants_rwr_graph = "rwr" in query_norm and (
+        wants_visual
+        or any(token in query_norm for token in ("graph", "network", "visualization"))
+    )
+    has_rwr_memory = bool(
+        state.get("rwr_seed_genes")
+        or state.get("memory_rwr_seed_genes")
+        or state.get("rwr_genes")
+        or state.get("memory_rwr_genes")
+    )
+    return bool(wants_visual and wants_rwr_graph and has_rwr_memory)
 
 
 def _should_force_memory_lookup(state: AgentState) -> bool:
@@ -954,11 +1115,7 @@ def _should_force_memory_lookup(state: AgentState) -> bool:
         )
         return bool(wants_deg_memory and asks_for_list_or_count and has_stored_deg_memory)
 
-    enrichr = state.get("enrichr")
-    if not isinstance(enrichr, dict) or not isinstance(enrichr.get("libraries"), dict):
-        enrichr = state.get("memory_enrichr")
-    has_stored_terms = isinstance(enrichr, dict) and isinstance(enrichr.get("libraries"), dict) and bool(enrichr.get("libraries"))
-    return bool(has_stored_terms)
+    return bool(_enrichr_libraries_from_state(state))
 
 
 def _state_field_names() -> list[str]:
@@ -974,8 +1131,15 @@ def _state_field_aliases() -> dict[str, str]:
         "deg genes": "deg_genes",
         "differentially expressed genes": "deg_genes",
         "rwr seed genes": "rwr_seed_genes",
+        "rwr seeds": "rwr_seed_genes",
         "seed genes for rwr": "rwr_seed_genes",
         "seed genes used for rwr": "rwr_seed_genes",
+        "seed genes after rwr": "rwr_seed_genes",
+        "seeds after rwr": "rwr_seed_genes",
+        "stored rwr seed genes": "memory_rwr_seed_genes",
+        "stored rwr seeds": "memory_rwr_seed_genes",
+        "memory rwr seed genes": "memory_rwr_seed_genes",
+        "memory rwr seeds": "memory_rwr_seed_genes",
         "rwr result genes": "rwr_genes",
         "rwr results": "rwr_genes",
         "rwr genes": "rwr_genes",
@@ -983,6 +1147,13 @@ def _state_field_aliases() -> dict[str, str]:
         "rwr output genes": "rwr_genes",
         "rwr target genes": "rwr_genes",
         "rwr hits": "rwr_genes",
+        "stored rwr result genes": "memory_rwr_genes",
+        "stored rwr results": "memory_rwr_genes",
+        "stored rwr genes": "memory_rwr_genes",
+        "stored rwr targets": "memory_rwr_genes",
+        "memory rwr result genes": "memory_rwr_genes",
+        "memory rwr results": "memory_rwr_genes",
+        "memory rwr genes": "memory_rwr_genes",
     }
     return {_normalize_text_token(alias): field for alias, field in aliases.items()}
 
@@ -1031,7 +1202,7 @@ def _state_value_summary(value: Any, *, max_items: int = 25) -> Any:
     if isinstance(value, BaseMessage):
         return {
             "type": type(value).__name__,
-            "content": _compact_text(getattr(value, "content", ""), limit=300),
+            "content": _compact_text(_message_content_text(getattr(value, "content", "")), limit=300),
         }
     if isinstance(value, dict):
         out: dict[str, Any] = {}
@@ -1077,6 +1248,21 @@ def _resolve_listlike_state_field(state: AgentState, field: str) -> tuple[str, l
     if memory_values:
         return memory_field, memory_values
     return resolved_field, values
+
+
+def _resolve_state_field_value(state: AgentState, field: str) -> tuple[str, bool, Any]:
+    resolved_field = str(field or "").strip()
+    if resolved_field in state:
+        value = state.get(resolved_field)
+        if value not in (None, "", [], {}):
+            return resolved_field, True, value
+
+    if resolved_field and not resolved_field.startswith("memory_"):
+        memory_field = f"memory_{resolved_field}"
+        if memory_field in state:
+            return memory_field, True, state.get(memory_field)
+
+    return resolved_field, resolved_field in state, state.get(resolved_field)
 
 
 def _selected_values_to_gene_candidates(values: Any) -> list[str]:
@@ -1125,41 +1311,37 @@ def _find_enrichr_term_from_state(
     pathway_term: str | None,
     *,
     query: str = "",
+    library_filter: set[str] | None = None,
 ) -> tuple[dict[str, Any] | None, str | None, int | None]:
-    enrichr = state.get("enrichr")
-    if not isinstance(enrichr, dict) or not isinstance(enrichr.get("libraries"), dict):
-        enrichr = state.get("memory_enrichr")
-    if not isinstance(enrichr, dict):
+    libraries = _enrichr_libraries_from_state(state)
+    if not libraries:
         return None, None, None
 
-    libraries = enrichr.get("libraries")
-    if not isinstance(libraries, dict):
-        return None, None, None
-
-    desired = _normalize_text_token(pathway_term or "")
-    query_norm = _normalize_text_token(query)
     best_match: tuple[dict[str, Any], str, int, int] | None = None
 
+    normalized_filter = {str(value).strip().lower() for value in (library_filter or set()) if str(value).strip()}
+
     for library_name, terms in libraries.items():
+        library_text = str(library_name)
+        if normalized_filter and library_text.strip().lower() not in normalized_filter:
+            continue
         if not isinstance(terms, list):
             continue
         for index, term in enumerate(terms, start=1):
             if not isinstance(term, dict):
                 continue
-            label = str(term.get("term") or "").strip()
+            label = str(
+                term.get("term")
+                or term.get("path_name")
+                or term.get("term_name")
+                or term.get("name")
+                or term.get("Path")
+                or term.get("Term")
+                or ""
+            ).strip()
             if not label:
                 continue
-            label_norm = _normalize_text_token(label)
-            score = 0
-            if desired:
-                if label_norm == desired:
-                    score = 1000
-                elif desired in label_norm:
-                    score = 800
-            elif label_norm and label_norm in query_norm:
-                score = 600 + len(label_norm)
-            elif query_norm and all(token in query_norm for token in label_norm.split()[:3] if token):
-                score = 300 + len(label_norm)
+            score = _pathway_match_score(label, pathway_term or "", query)
 
             if score <= 0:
                 continue
@@ -1190,12 +1372,8 @@ def _run_memory_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any
         query=query,
     )
     pathway_genes = []
-    if isinstance(selected_term, dict) and isinstance(selected_term.get("overlapping_genes"), list):
-        pathway_genes = [
-            str(g).strip().upper()
-            for g in selected_term.get("overlapping_genes", [])
-            if str(g).strip()
-        ]
+    if isinstance(selected_term, dict):
+        pathway_genes = _term_overlapping_genes(selected_term)
 
     deg_records = state.get("deg_gene_records") or state.get("memory_deg_gene_records")
     deg_genes = _genes_from_deg_records_by_direction(
@@ -1239,7 +1417,14 @@ def _run_memory_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any
         "top_n": top_n,
         "selected_term": {
             "library": selected_library,
-            "term": selected_term.get("term") if isinstance(selected_term, dict) else "",
+            "term": (
+                selected_term.get("term")
+                or selected_term.get("path_name")
+                or selected_term.get("term_name")
+                or selected_term.get("name")
+                or selected_term.get("Path")
+                or selected_term.get("Term")
+            ) if isinstance(selected_term, dict) else "",
             "rank": selected_rank,
             "overlapping_genes": pathway_genes[:100],
         } if isinstance(selected_term, dict) else None,
@@ -1452,10 +1637,10 @@ def _run_state_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
 
     inspections: list[dict[str, Any]] = []
     for field in fields:
-        exists = field in state
-        value = state.get(field)
+        resolved_field, exists, value = _resolve_state_field_value(state, field)
         entry: dict[str, Any] = {
-            "field": field,
+            "field": resolved_field,
+            "requested_field": field,
             "exists": exists,
             "type": type(value).__name__ if exists else "missing",
         }
@@ -1491,6 +1676,68 @@ def _run_state_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
         "message": answer_text,
         "should_finalize": True,
     }
+
+
+def _state_lookup_has_useful_result(result: dict[str, Any]) -> bool:
+    inspections = result.get("inspections")
+    if not isinstance(inspections, list) or not inspections:
+        return False
+    for entry in inspections:
+        if not isinstance(entry, dict) or not entry.get("exists"):
+            continue
+        if "length" in entry:
+            if entry.get("length") not in (None, 0):
+                return True
+            continue
+        value = entry.get("value")
+        if value not in (None, "", [], {}):
+            return True
+        entry_type = str(entry.get("type") or "")
+        if entry_type not in {"NoneType", "missing"}:
+            return True
+    return False
+
+
+def _run_state_lookup_with_memory_fallback(
+    state: AgentState,
+    args: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    state_result = _run_state_lookup(state, args)
+    update: dict[str, Any] = {"state_lookup_result": state_result}
+    if _state_lookup_has_useful_result(state_result):
+        return state_result, update
+
+    slice_args = {
+        **args,
+        "fields": args.get("fields") or state_result.get("fields") or [],
+        "text": args.get("text") or state.get("query") or "",
+    }
+    slice_result = _run_memory_slice(state, slice_args)
+    update["memory_slice_result"] = slice_result
+    if str(slice_result.get("status") or "") == "ok" and slice_result.get("selected_values"):
+        result = {
+            **slice_result,
+            "analysis_arm": "memory_slice",
+            "state_lookup_result": state_result,
+            "fallback_from": "state_lookup",
+            "message": str(slice_result.get("message") or slice_result.get("answer") or ""),
+        }
+        return result, update
+
+    lookup_result = _run_memory_lookup(state, args)
+    update["memory_lookup_result"] = lookup_result
+    if str(lookup_result.get("status") or "") == "ok":
+        result = {
+            **lookup_result,
+            "analysis_arm": "memory_lookup",
+            "state_lookup_result": state_result,
+            "memory_slice_result": slice_result,
+            "fallback_from": "state_lookup",
+            "message": str(lookup_result.get("message") or lookup_result.get("answer") or ""),
+        }
+        return result, update
+
+    return state_result, update
 
 
 def _run_memory_slice(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
@@ -1893,10 +2140,14 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
 
 def _infer_analysis_arm(state: AgentState) -> str:
     arm = str(state.get("analysis_arm") or "").strip().lower()
-    if arm in {"general", "srp", "disease", "memory_rwr", "primekg", "opentargets", "memory_lookup", "state_lookup", "memory_slice", "l1000cds2", "pubchem", "research_literature", "literature", "hypothesis"}:
+    if arm in {"general", "srp", "disease", "memory_rwr", "pathway", "visualize", "primekg", "opentargets", "memory_lookup", "state_lookup", "memory_slice", "l1000cds2", "pubchem", "research_literature", "literature", "hypothesis"}:
         return arm
+    if state.get("visualization_result"):
+        return "visualize"
     if state.get("hypothesis_result"):
         return "hypothesis"
+    if state.get("enrichr"):
+        return "pathway"
     if state.get("memory_lookup_result"):
         return "memory_lookup"
     if state.get("state_lookup_result"):
@@ -2005,6 +2256,8 @@ def _build_system_prompt(state: AgentState) -> str:
         "Your job is to choose the single best next action for the current turn.\n"
         "Think like an agent supervisor: inspect the live state, decide whether to answer or call exactly one tool, then reassess after the tool returns.\n"
         "Do not plan a long sequence in text. Make the next grounded move.\n"
+        "You may chain multiple specialists across loop iterations when the user asks for a real analysis workflow or when a previous specialist created the prerequisite state for the next requested step.\n"
+        "A credible chain is short, stateful, and evidence-seeking: each specialist must consume current state or produce a result/artifact needed by the user's request.\n"
         "If the query is only a simple greeting, acknowledgment, or casual conversational turn, answer directly without tools.\n"
         "Do not answer biomedical or technical questions directly from remembered state alone.\n"
         "Use remembered state to choose and parameterize tools, not to bypass tool execution or rendered outputs.\n"
@@ -2020,6 +2273,9 @@ def _build_system_prompt(state: AgentState) -> str:
         "Decision rules:\n"
         "- Choose only from the listed specialist tools when a tool is needed.\n"
         "- Make the smallest correct next decision rather than narrating a full workflow.\n"
+        "- After a specialist returns, either call the next necessary specialist or answer from the accumulated structured state.\n"
+        "- Do not repeat a specialist that has already satisfied the same part of the current query unless new inputs were created and repetition is clearly useful.\n"
+        "- Prefer `synthesize_technical_response` when the requested specialist chain is complete and the answer should integrate multiple technical results.\n"
         "- Prefer using state and memory to parameterize tools instead of answering from memory alone.\n"
         "- Reuse stored genes, DEG results, disease names, pathway results, and graph state as tool inputs whenever they already satisfy prerequisites.\n"
         "- If a required input is missing, choose the tool that can recover it instead of asking the user unless the gap cannot be inferred or recovered.\n"
@@ -2119,6 +2375,41 @@ def _agent(state: AgentState) -> AgentState:
                 "text": query_text,
             },
             "id": "forced_memory_slice_for_research_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
+    if _should_force_stored_pathway_visualization(state):
+        query_text = str(state.get("query") or "")
+        forced_call = {
+            "name": "visualize",
+            "args": {
+                "visualization_type": "kegg",
+                "pathway_term": _extract_requested_pathway_name(query_text),
+                "text": query_text,
+            },
+            "id": "forced_stored_pathway_visualization_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
+    if _should_force_rwr_visualization(state):
+        query_text = str(state.get("query") or "")
+        forced_call = {
+            "name": "visualize",
+            "args": {
+                "visualization_type": "network",
+                "text": query_text,
+            },
+            "id": "forced_rwr_visualization_call",
             "type": "tool_call",
         }
         response = AIMessage(content="", tool_calls=[forced_call])
@@ -2275,7 +2566,7 @@ def _agent(state: AgentState) -> AgentState:
                 "messages": [AIMessage(content="", tool_calls=[fallback_call])],
                 "step_count": int(state.get("step_count") or 0) + 1,
             }
-        update["answer"] = _compact_text(getattr(response, "content", ""), limit=4000)
+        update["answer"] = _compact_text(_message_content_text(getattr(response, "content", "")), limit=4000)
         update["should_finalize"] = True
     return update
 
@@ -2341,7 +2632,7 @@ def _run_extract_deg_groups(state: AgentState, args: dict[str, Any]) -> dict[str
         ]
     )
     try:
-        parsed = _ensure_dict(parse_json_object(getattr(response, "content", "") or "{}"))
+        parsed = _ensure_dict(parse_json_object(_message_content_text(getattr(response, "content", "")) or "{}"))
     except Exception:
         parsed = {}
     control_name = " ".join(str(parsed.get("control_name") or "").split()).strip()
@@ -2780,7 +3071,7 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
             except Exception:
                 row_log2fc = None
             try:
-                row_padj = float(row.get("pdj"))
+                row_padj = float(row.get("pdj") or row.get("padj"))
             except Exception:
                 row_padj = None
             if row_log2fc is not None and row_log2fc < log2fold:
@@ -2795,20 +3086,33 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
                 {
                     "gene": gene,
                     "pvalue": row.get("pvalue"),
-                    "pdj": row.get("pdj"),
+                    "pdj": row.get("pdj") or row.get("padj"),
                     "log2FoldChange": row.get("log2FoldChange"),
                     "description": row.get("description"),
                 }
             )
     deg_genes = [str(row.get("gene") or "").strip() for row in deg_gene_records if str(row.get("gene") or "").strip()]
-    kept_genes = set(deg_genes)
-    deg_result["rows"] = [
-        row for row in deg_rows
-        if isinstance(row, dict)
-        and str(
-            row.get("hgnc_symbol") or row.get("external_gene_name") or row.get("Ensembl") or row.get("entrezgene_accession") or ""
-        ).strip() in kept_genes
-    ] if isinstance(deg_rows, list) else []
+    display_rows = [
+        {
+            "gene": row.get("gene"),
+            "log2FoldChange": row.get("log2FoldChange"),
+            "pvalue": row.get("pvalue"),
+            "description": row.get("description"),
+        }
+        for row in deg_gene_records
+    ]
+    upregulated_rows = sorted(
+        (row for row in display_rows if _safe_float(row.get("log2FoldChange")) > 0),
+        key=lambda row: _safe_float(row.get("log2FoldChange")),
+        reverse=True,
+    )
+    downregulated_rows = sorted(
+        (row for row in display_rows if _safe_float(row.get("log2FoldChange")) < 0),
+        key=lambda row: _safe_float(row.get("log2FoldChange")),
+    )
+    deg_result["rows"] = display_rows
+    deg_result["upregulated_rows"] = upregulated_rows
+    deg_result["downregulated_rows"] = downregulated_rows
     deg_result["genes"] = deg_genes
     deg_result["log2fold"] = log2fold
     deg_result["padj"] = padj
@@ -2966,7 +3270,9 @@ def _run_top_rwr(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     if isinstance(top_n, int) and top_n > 0:
         update["top_n"] = top_n
     analysis_arm = str(args.get("analysis_arm") or state.get("analysis_arm") or "").strip().lower()
-    if analysis_arm in {"general", "disease", "memory_rwr"}:
+    if gene_set_source in {"tool_args", "query_genes"}:
+        update["analysis_arm"] = "general"
+    elif analysis_arm in {"general", "disease", "memory_rwr"}:
         update["analysis_arm"] = analysis_arm
     elif state.get("memory_deg_genes") or state.get("memory_deg_gene_records"):
         update["analysis_arm"] = "memory_rwr"
@@ -3033,12 +3339,12 @@ def _run_enrichr(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "direction": direction,
+        "analysis_arm": "pathway",
         "gene_limit": gene_limit,
         "term_limit": term_limit,
         "selected_genes": list(genes or []),
         "input_gene_count": len(list(genes or [])),
         "gene_set_source": gene_set_source or ("stored_deg_genes" if _memory_gene_query_requested(query) or state.get("deg_gene_records") or state.get("memory_deg_gene_records") else "tool_args"),
-        "should_finalize": True,
         "enrichr": enrichr_pathways(
             genes,
             top_n=int(term_limit or 10),
@@ -3120,7 +3426,10 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
             visualization_type = "network"
 
     if visualization_type == "network":
-        graph = state.get("graph")
+        requested_graph = args.get("graph")
+        graph = requested_graph if isinstance(requested_graph, nx.Graph) else state.get("graph")
+        graph_source = "args.graph" if isinstance(requested_graph, nx.Graph) else "state.graph"
+        rebuilt_graph = False
         seed_genes = [
             str(g).strip().upper()
             for g in (
@@ -3142,10 +3451,12 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
                 required_score=int(args.get("required_score") or SETTINGS.string_required_score),
                 mode=str(args.get("mode") or SETTINGS.string_local_mode),
             )
+            rebuilt_graph = True
+            graph_source = "rebuilt_from_rwr_memory"
         result = build_network_visualization(
             graph,
             output_path=str(args.get("output_path") or "pyvis_network.html"),
-            select_top_degree=None,
+            select_top_degree=int(args.get("select_top_degree") or 300),
             allowed_nodes=allowed_nodes,
             seed_genes=seed_genes,
             rwr_genes=top_targets,
@@ -3153,6 +3464,12 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         result["visualization_type"] = "network"
         result["seed_genes"] = seed_genes
         result["top_targets"] = top_targets
+        result["rwr_seed_genes"] = seed_genes
+        result["rwr_genes"] = state.get("rwr_genes") or state.get("memory_rwr_genes") or []
+        result["rebuilt_graph_from_memory"] = rebuilt_graph
+        result["graph_source"] = graph_source
+        if isinstance(graph, nx.Graph) and graph.number_of_nodes() > 0:
+            result["graph"] = graph
         return result
 
     if visualization_type == "kegg":
@@ -3163,22 +3480,32 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
             state,
             pathway_term,
             query=query,
+            library_filter={"KEGG_2021_Human"},
         )
-        if selected_term and isinstance(selected_term.get("overlapping_genes"), list) and selected_term.get("overlapping_genes"):
-            genes = [
-                str(g).strip().upper()
-                for g in selected_term.get("overlapping_genes", [])
-                if str(g).strip()
-            ]
+        if not selected_term:
+            selected_term, selected_library, selected_rank = _find_enrichr_term_from_state(
+                state,
+                pathway_term,
+                query=query,
+            )
+        selected_term_genes = _term_overlapping_genes(selected_term)
+        if selected_term_genes:
+            genes = selected_term_genes
             gene_set_source = "stored_pathway_overlapping_genes"
             direction = str(args.get("direction") or _deg_direction_from_query(query) or "all").strip().lower()
             top_n = len(genes)
         else:
             genes, gene_set_source, direction, top_n = _visualization_gene_set(state, args, query=query)
+        selected_library_text = str(selected_library or "").strip().lower()
+        kegg_rank = (
+            int(selected_rank)
+            if selected_rank and selected_library_text == "kegg_2021_human"
+            else int(args.get("kegg_rank") or 1)
+        )
         result = build_kegg_pathway_visualization(
             genes,
             output_path=str(args.get("output_path") or "kegg_pathway.png"),
-            kegg_rank=int(args.get("kegg_rank") or selected_rank or 1),
+            kegg_rank=kegg_rank,
             species=str(args.get("species") or "human"),
             pathway_term=pathway_term,
         )
@@ -3191,8 +3518,15 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         if selected_term:
             result["selected_pathway"] = {
                 "library": selected_library,
-                "term": selected_term.get("term"),
-                "overlapping_genes": selected_term.get("overlapping_genes"),
+                "term": (
+                    selected_term.get("term")
+                    or selected_term.get("path_name")
+                    or selected_term.get("term_name")
+                    or selected_term.get("name")
+                    or selected_term.get("Path")
+                    or selected_term.get("Term")
+                ),
+                "overlapping_genes": _term_overlapping_genes(selected_term),
                 "rank": selected_rank,
             }
         return result
@@ -3218,8 +3552,17 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
 def _visualization_answer(result: dict[str, Any]) -> str:
     visualization_type = str(result.get("visualization_type") or "").strip().lower()
     status = str(result.get("status") or "").strip().lower()
+    output_path = str(
+        result.get("pyvis_html_path")
+        or result.get("kegg_pathway_path")
+        or result.get("volcano_plot_path")
+        or ""
+    ).strip()
     if status != "ok":
-        return str(result.get("message") or "Visualization could not be generated.").strip()
+        if output_path:
+            status = "ok"
+        else:
+            return str(result.get("message") or "Visualization could not be generated.").strip()
 
     if visualization_type == "network":
         node_count = int(result.get("visualized_node_count") or 0)
@@ -3228,28 +3571,33 @@ def _visualization_answer(result: dict[str, Any]) -> str:
         target_count = len(result.get("top_targets") or [])
         html_path = str(result.get("pyvis_html_path") or "").strip()
         parts = [
-            f"Built an interactive network visualization with {node_count} nodes and {edge_count} edges.",
-            f"Seed genes highlighted: {seed_count}.",
-            f"RWR result genes highlighted: {target_count}.",
+            "Successfully generated the interactive network visualization.",
         ]
+        if node_count or edge_count:
+            parts.append(f"The network includes {node_count} nodes and {edge_count} edges.")
+        if seed_count:
+            parts.append(f"Seed genes highlighted: {seed_count}.")
+        if target_count:
+            parts.append(f"RWR result genes highlighted: {target_count}.")
         if html_path:
             parts.append(f"Output saved to: {html_path}.")
         return " ".join(parts)
 
     if visualization_type == "kegg":
         path = str(result.get("kegg_pathway_path") or "").strip()
-        message = str(result.get("message") or "Built KEGG pathway visualization.").strip()
+        message = "Successfully generated the KEGG pathway visualization."
         return f"{message} Output saved to: {path}." if path else message
 
     if visualization_type == "volcano":
         path = str(result.get("volcano_plot_path") or "").strip()
         points = int(result.get("points") or 0)
-        message = str(result.get("message") or "Built DEG volcano plot.").strip()
+        message = "Successfully generated the DEG volcano plot."
         detail = f" Points plotted: {points}." if points else ""
         suffix = f" Output saved to: {path}." if path else ""
         return f"{message}{detail}{suffix}"
 
-    return str(result.get("message") or "Visualization generated successfully.").strip()
+    message = "Successfully generated the requested visualization."
+    return f"{message} Output saved to: {output_path}." if output_path else message
 
 
 def _run_synthesize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
@@ -3263,12 +3611,15 @@ def _run_synthesize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         deg_analysis=_ensure_dict(state.get("opentargets_result") or state.get("primekg_result") or state.get("deg_analysis")),
         rwr_genes=list(state.get("rwr_genes") or []),
         graph=graph if isinstance(graph, nx.Graph) else nx.Graph(),
-        enrichr=_ensure_dict(state.get("enrichr")),
+        enrichr=_ensure_dict(state.get("enrichr") or state.get("memory_enrichr")),
         literature_papers=list(state.get("openalex_papers") or []),
         ranked_literature_papers=list(state.get("ranked_openalex_papers") or []),
         literature_key_points=list(state.get("literature_key_points") or []),
         literature_references=list(state.get("literature_references") or []),
         literature_summary=str(state.get("literature_summary") or ""),
+        memory_lookup_result=_ensure_dict(state.get("memory_lookup_result")),
+        state_lookup_result=_ensure_dict(state.get("state_lookup_result")),
+        memory_slice_result=_ensure_dict(state.get("memory_slice_result")),
     )
     return {
         "answer": answer,
@@ -3291,6 +3642,19 @@ def _execute_tool_runner(tool_name: str, runner: Callable[[], dict[str, Any]]) -
             tool_name,
             f"{tool_name} failed: {sanitize_exception_message(exc)}",
         )
+
+
+def _preserve_existing_graph_for_lookup(state: AgentState, update: dict[str, Any]) -> dict[str, Any]:
+    existing_graph = state.get("graph")
+    incoming_graph = update.get("graph")
+    if (
+        isinstance(existing_graph, nx.Graph)
+        and existing_graph.number_of_nodes() > 0
+        and not (isinstance(incoming_graph, nx.Graph) and incoming_graph.number_of_nodes() > 0)
+    ):
+        update = dict(update)
+        update.pop("graph", None)
+    return update
 
 
 def _tool_observations(state: AgentState, call: dict[str, Any] | None, tool_name: str, result: dict[str, Any]) -> list[ToolMessage]:
@@ -3367,15 +3731,57 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             rwr_result = _execute_tool_runner("top_rwr_genes", lambda: _run_top_rwr(state, args))
             update = _specialist_history_update(state, "top_rwr_genes", args, rwr_result)
             update = {**update, **rwr_result}
+            graph_obj = state.get("graph")
+            if isinstance(graph_obj, nx.Graph) and graph_obj.number_of_nodes() > 0:
+                seed_genes = [str(g).strip().upper() for g in rwr_result.get("rwr_seed_genes", []) if str(g).strip()]
+                rwr_hits = [
+                    str(row[0]).strip().upper()
+                    for row in (rwr_result.get("rwr_genes") or [])[:20]
+                    if isinstance(row, (list, tuple)) and row and str(row[0]).strip()
+                ]
+                try:
+                    visualization_result = build_network_visualization(
+                        graph_obj,
+                        output_path=str(args.get("output_path") or "pyvis_network.html"),
+                        select_top_degree=int(args.get("select_top_degree") or 300),
+                        allowed_nodes=None,
+                        seed_genes=seed_genes,
+                        rwr_genes=rwr_hits,
+                    )
+                    visualization_result["visualization_type"] = "network"
+                    visualization_result["seed_genes"] = seed_genes
+                    visualization_result["top_targets"] = rwr_hits
+                    update["visualization_result"] = visualization_result
+                    if visualization_result.get("pyvis_html_path"):
+                        update["pyvis_html_path"] = visualization_result.get("pyvis_html_path")
+                    if visualization_result.get("status") == "ok":
+                        update["message"] = (
+                            f"{str(rwr_result.get('message') or '').strip()} "
+                            f"Generated network visualization at {visualization_result.get('pyvis_html_path')}."
+                        ).strip()
+                except Exception as exc:
+                    update["visualization_result"] = {
+                        "status": "visualization_failed",
+                        "message": sanitize_exception_message(exc),
+                        "visualization_type": "network",
+                    }
             state = {**state, **update}
-            return {**state, **rwr_result, "messages": _tool_observations(state, call, tool_name, rwr_result)}
+            return {**state, "messages": _tool_observations(state, call, tool_name, update)}
 
         if tool_name == "visualize":
             result = _execute_tool_runner("visualize", lambda: _run_visualize(state, args))
             update = _specialist_history_update(state, "visualize", args, result)
             update = {**update, **result}
+            visual_answer = _visualization_answer(result)
             update["visualization_result"] = result
-            update["answer"] = _visualization_answer(result)
+            update["answer"] = visual_answer
+            update["message"] = visual_answer if str(result.get("status") or "").strip().lower() == "ok" else str(result.get("message") or visual_answer)
+            if isinstance(result.get("graph"), nx.Graph):
+                update["graph"] = result["graph"]
+            if isinstance(result.get("rwr_seed_genes"), list):
+                update["memory_rwr_seed_genes"] = list(result.get("rwr_seed_genes") or [])
+            if isinstance(result.get("rwr_genes"), list):
+                update["memory_rwr_genes"] = list(result.get("rwr_genes") or [])
             update["should_finalize"] = True
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
@@ -3393,13 +3799,27 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             update = _specialist_history_update(state, "memory_lookup", args, result)
             update = {**update, **result}
             update["memory_lookup_result"] = result
+            update = _preserve_existing_graph_for_lookup(state, update)
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "state_lookup":
-            result = _execute_tool_runner("state_lookup", lambda: _run_state_lookup(state, args))
+            try:
+                result, fallback_update = _run_state_lookup_with_memory_fallback(state, args)
+            except Exception as exc:
+                result = tool_error_result(
+                    "state_lookup",
+                    f"state_lookup failed: {sanitize_exception_message(exc)}",
+                )
+                fallback_update = {"state_lookup_result": result}
             update = _specialist_history_update(state, "state_lookup", args, result)
             update = {**update, **result}
-            update["state_lookup_result"] = result
+            update = {**update, **fallback_update}
+            update["state_lookup_result"] = fallback_update.get("state_lookup_result", result)
+            if result.get("analysis_arm") == "memory_slice":
+                update["memory_slice_result"] = result
+            elif result.get("analysis_arm") == "memory_lookup":
+                update["memory_lookup_result"] = result
+            update = _preserve_existing_graph_for_lookup(state, update)
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "memory_slice":
@@ -3480,6 +3900,13 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
                 update["memory_pubchem_result"] = result
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
+        if tool_name == "synthesize_technical_response":
+            result = _execute_tool_runner("synthesize_technical_response", lambda: _run_synthesize(state, args))
+            update = _specialist_history_update(state, "synthesize_technical_response", args, result)
+            update = {**update, **result}
+            update["should_finalize"] = True
+            return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
+
         return state
 
     return node
@@ -3490,7 +3917,7 @@ def _finalize(state: AgentState) -> AgentState:
     if not answer:
         ai_message = _latest_ai_message(list(state.get("messages") or []))
         if ai_message and not getattr(ai_message, "tool_calls", None):
-            answer = _compact_text(getattr(ai_message, "content", ""), limit=4000)
+            answer = _compact_text(_message_content_text(getattr(ai_message, "content", "")), limit=4000)
 
     if state.get("tool_history"):
         analysis_arm = _infer_analysis_arm(state)
@@ -3500,7 +3927,25 @@ def _finalize(state: AgentState) -> AgentState:
                 if analysis_arm == "memory_lookup"
                 else (state.get("state_lookup_result") if analysis_arm == "state_lookup" else state.get("memory_slice_result"))
             )
-            answer = str((lookup_result or {}).get("answer") or answer or "").strip()
+            answer = synthesize_technical_response(
+                user_query=str(state.get("query") or ""),
+                analysis_arm=analysis_arm,
+                seed_genes=list(state.get("genes") or []),
+                srp_ids=list(state.get("srp_ids") or []),
+                disease_name=str(state.get("disease_name") or state.get("memory_disease_name") or ""),
+                deg_analysis=_ensure_dict(lookup_result),
+                rwr_genes=list(state.get("rwr_genes") or []),
+                graph=state.get("graph") if isinstance(state.get("graph"), nx.Graph) else nx.Graph(),
+                enrichr=_ensure_dict(state.get("enrichr") or state.get("memory_enrichr")),
+                literature_papers=list(state.get("openalex_papers") or []),
+                ranked_literature_papers=list(state.get("ranked_openalex_papers") or []),
+                literature_key_points=list(state.get("literature_key_points") or []),
+                literature_references=list(state.get("literature_references") or []),
+                literature_summary=str(state.get("literature_summary") or ""),
+                memory_lookup_result=_ensure_dict(state.get("memory_lookup_result")),
+                state_lookup_result=_ensure_dict(state.get("state_lookup_result")),
+                memory_slice_result=_ensure_dict(state.get("memory_slice_result")),
+            )
             graph = state.get("graph")
             meta = {
                 "analysis_arm": analysis_arm,
@@ -3562,6 +4007,27 @@ def _finalize(state: AgentState) -> AgentState:
             }
         if analysis_arm == "hypothesis":
             graph = state.get("graph")
+            branch_answer = str(state.get("answer") or answer or "").strip()
+            if not branch_answer:
+                branch_answer = synthesize_technical_response(
+                    user_query=str(state.get("query") or ""),
+                    analysis_arm=analysis_arm,
+                    seed_genes=list(state.get("genes") or []),
+                    srp_ids=list(state.get("srp_ids") or []),
+                    disease_name=str(state.get("disease_name") or state.get("memory_disease_name") or ""),
+                    deg_analysis=_ensure_dict(state.get("hypothesis_result")),
+                    rwr_genes=list(state.get("rwr_genes") or []),
+                    graph=graph if isinstance(graph, nx.Graph) else nx.Graph(),
+                    enrichr=_ensure_dict(state.get("enrichr") or state.get("memory_enrichr")),
+                    literature_papers=list(state.get("openalex_papers") or []),
+                    ranked_literature_papers=list(state.get("ranked_openalex_papers") or []),
+                    literature_key_points=list(state.get("literature_key_points") or []),
+                    literature_references=list(state.get("literature_references") or []),
+                    literature_summary=str(state.get("literature_summary") or ""),
+                    memory_lookup_result=_ensure_dict(state.get("memory_lookup_result")),
+                    state_lookup_result=_ensure_dict(state.get("state_lookup_result")),
+                    memory_slice_result=_ensure_dict(state.get("memory_slice_result")),
+                )
             meta = {
                 "analysis_arm": analysis_arm,
                 "is_followup": bool(state.get("is_followup", False)),
@@ -3589,13 +4055,32 @@ def _finalize(state: AgentState) -> AgentState:
                 "tool_history": list(state.get("tool_history") or [])[-10:],
             }
             return {
-                "answer": str(state.get("answer") or answer or "").strip(),
+                "answer": branch_answer,
                 "meta": meta,
                 "analysis_arm": analysis_arm,
                 "graph": graph if isinstance(graph, nx.Graph) else None,
             }
         if analysis_arm in {"research_literature", "literature"}:
             graph = state.get("graph")
+            branch_answer = synthesize_technical_response(
+                user_query=str(state.get("query") or ""),
+                analysis_arm=analysis_arm,
+                seed_genes=list(state.get("genes") or []),
+                srp_ids=list(state.get("srp_ids") or []),
+                disease_name=str(state.get("disease_name") or state.get("memory_disease_name") or ""),
+                deg_analysis=_ensure_dict(state.get("deg_analysis")),
+                rwr_genes=list(state.get("rwr_genes") or []),
+                graph=graph if isinstance(graph, nx.Graph) else nx.Graph(),
+                enrichr=_ensure_dict(state.get("enrichr") or state.get("memory_enrichr")),
+                literature_papers=list(state.get("openalex_papers") or []),
+                ranked_literature_papers=list(state.get("ranked_openalex_papers") or []),
+                literature_key_points=list(state.get("literature_key_points") or []),
+                literature_references=list(state.get("literature_references") or []),
+                literature_summary=str(state.get("literature_summary") or state.get("answer") or answer or ""),
+                memory_lookup_result=_ensure_dict(state.get("memory_lookup_result")),
+                state_lookup_result=_ensure_dict(state.get("state_lookup_result")),
+                memory_slice_result=_ensure_dict(state.get("memory_slice_result")),
+            )
             meta = {
                 "analysis_arm": analysis_arm,
                 "is_followup": bool(state.get("is_followup", False)),
@@ -3651,7 +4136,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "tool_history": list(state.get("tool_history") or [])[-10:],
             }
             return {
-                "answer": str(state.get("answer") or answer or "").strip(),
+                "answer": branch_answer,
                 "meta": meta,
                 "analysis_arm": analysis_arm,
                 "graph": graph if isinstance(graph, nx.Graph) else None,
@@ -3674,16 +4159,54 @@ def _finalize(state: AgentState) -> AgentState:
             deg_analysis=specialist_payload,
             rwr_genes=list(state.get("rwr_genes") or []),
             graph=state.get("graph") if isinstance(state.get("graph"), nx.Graph) else nx.Graph(),
-            enrichr=_ensure_dict(state.get("enrichr")),
+            enrichr=_ensure_dict(state.get("enrichr") or state.get("memory_enrichr")),
             literature_papers=list(state.get("openalex_papers") or []),
             ranked_literature_papers=list(state.get("ranked_openalex_papers") or []),
             literature_key_points=list(state.get("literature_key_points") or []),
             literature_references=list(state.get("literature_references") or []),
             literature_summary=str(state.get("literature_summary") or ""),
+            memory_lookup_result=_ensure_dict(state.get("memory_lookup_result")),
+            state_lookup_result=_ensure_dict(state.get("state_lookup_result")),
+            memory_slice_result=_ensure_dict(state.get("memory_slice_result")),
         )
 
     analysis_arm = _infer_analysis_arm(state)
     graph = state.get("graph")
+    if not answer:
+        specialist_payload = _ensure_dict(state.get("deg_analysis"))
+        if analysis_arm == "primekg":
+            specialist_payload = _ensure_dict(state.get("primekg_result"))
+        elif analysis_arm == "l1000cds2":
+            specialist_payload = _ensure_dict(state.get("l1000cds2_result") or state.get("memory_l1000cds2_result"))
+        elif analysis_arm == "pubchem":
+            specialist_payload = _ensure_dict(state.get("pubchem_result") or state.get("memory_pubchem_result"))
+        elif analysis_arm == "opentargets":
+            specialist_payload = _ensure_dict(state.get("opentargets_result"))
+        elif analysis_arm == "memory_lookup":
+            specialist_payload = _ensure_dict(state.get("memory_lookup_result"))
+        elif analysis_arm == "state_lookup":
+            specialist_payload = _ensure_dict(state.get("state_lookup_result"))
+        elif analysis_arm == "memory_slice":
+            specialist_payload = _ensure_dict(state.get("memory_slice_result"))
+        answer = synthesize_technical_response(
+            user_query=str(state.get("query") or ""),
+            analysis_arm=analysis_arm,
+            seed_genes=list(state.get("genes") or []),
+            srp_ids=list(state.get("srp_ids") or []),
+            disease_name=str(state.get("disease_name") or state.get("memory_disease_name") or ""),
+            deg_analysis=specialist_payload,
+            rwr_genes=list(state.get("rwr_genes") or []),
+            graph=graph if isinstance(graph, nx.Graph) else nx.Graph(),
+            enrichr=_ensure_dict(state.get("enrichr") or state.get("memory_enrichr")),
+            literature_papers=list(state.get("openalex_papers") or []),
+            ranked_literature_papers=list(state.get("ranked_openalex_papers") or []),
+            literature_key_points=list(state.get("literature_key_points") or []),
+            literature_references=list(state.get("literature_references") or []),
+            literature_summary=str(state.get("literature_summary") or ""),
+            memory_lookup_result=_ensure_dict(state.get("memory_lookup_result")),
+            state_lookup_result=_ensure_dict(state.get("state_lookup_result")),
+            memory_slice_result=_ensure_dict(state.get("memory_slice_result")),
+        )
     meta = {
         "analysis_arm": analysis_arm,
         "is_followup": bool(state.get("is_followup", False)),
@@ -4004,7 +4527,7 @@ TOOL_SCHEMAS = [
         "synthesize_technical_response",
         description="Write the final technical summary from the available analysis state.",
         return_direct=False,
-    )(lambda user_query, analysis_arm="disease", seed_genes=None, srp_ids=None, disease_name="", deg_analysis=None, rwr_genes=None, graph=None, enrichr=None: synthesize_technical_response(
+    )(lambda user_query=None, analysis_arm="disease", seed_genes=None, srp_ids=None, disease_name="", deg_analysis=None, rwr_genes=None, graph=None, enrichr=None: synthesize_technical_response(
         user_query=user_query,
         analysis_arm=analysis_arm,
         seed_genes=list(seed_genes or []),
@@ -4034,4 +4557,5 @@ TOOL_EXECUTORS: dict[str, Callable[[AgentState, dict[str, Any]], dict[str, Any]]
     "opentargets_association": lambda state, args: {},
     "l1000cds2_query": lambda state, args: {},
     "pubchem_drug_lookup": lambda state, args: {},
+    "synthesize_technical_response": lambda state, args: {},
 }

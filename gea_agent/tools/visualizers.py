@@ -30,8 +30,10 @@ def _select_kegg_rank(
     default_rank: int,
 ) -> tuple[int, dict[str, Any] | None]:
     desired = _normalize_pathway_label(pathway_term)
+    max_rank = max(1, len(results))
+    safe_default_rank = max(1, min(int(default_rank), max_rank))
     if not desired:
-        return max(1, int(default_rank)), None
+        return safe_default_rank, None
 
     best: tuple[int, dict[str, Any], int] | None = None
     for index, row in enumerate(results, start=1):
@@ -62,7 +64,7 @@ def _select_kegg_rank(
             best = (index, row, score)
 
     if best is None:
-        return max(1, int(default_rank)), None
+        return safe_default_rank, None
     return best[0], best[1]
 
 
@@ -82,8 +84,17 @@ def build_network_visualization(
             "pyvis_html_path": "",
         }
 
+    render_graph = graph
+    if allowed_nodes:
+        allowed = {str(node).strip().upper() for node in allowed_nodes if str(node).strip()}
+        keep = [node for node in graph.nodes() if str(node).strip().upper() in allowed]
+        if keep:
+            candidate_graph = graph.subgraph(keep).copy()
+            if candidate_graph.number_of_edges() > 0 or graph.number_of_edges() == 0:
+                render_graph = candidate_graph
+
     html_path = build_pyvis_html(
-        graph,
+        render_graph,
         output_path=output_path,
         select_top_degree=select_top_degree,
         seed_genes=seed_genes,
@@ -93,8 +104,8 @@ def build_network_visualization(
         "status": "ok",
         "message": "Built PyVis network visualization.",
         "pyvis_html_path": html_path,
-        "visualized_node_count": int(graph.number_of_nodes()),
-        "visualized_edge_count": int(graph.number_of_edges()),
+        "visualized_node_count": int(render_graph.number_of_nodes()),
+        "visualized_edge_count": int(render_graph.number_of_edges()),
     }
 
 
@@ -135,11 +146,47 @@ def build_kegg_pathway_visualization(
             verbose=False,
         )
         preview_rows = preview_results if isinstance(preview_results, list) else []
+        if not preview_rows:
+            return {
+                "status": "not_found",
+                "message": "No KEGG enrichment results were returned for the selected genes, so a KEGG pathway image could not be generated.",
+                "kegg_pathway_path": "",
+                "genes": genes,
+                "requested_pathway_term": str(pathway_term or "").strip(),
+                "kegg_enrichr_results": [],
+            }
         selected_rank, selected_pathway = _select_kegg_rank(
             preview_rows,
             pathway_term,
             default_rank=int(kegg_rank),
         )
+        if pathway_term and not selected_pathway:
+            available = []
+            for row in preview_rows[:5]:
+                if not isinstance(row, dict):
+                    continue
+                label = str(
+                    row.get("path_name")
+                    or row.get("term")
+                    or row.get("term_name")
+                    or row.get("name")
+                    or row.get("Path")
+                    or row.get("Term")
+                    or ""
+                ).strip()
+                if label:
+                    available.append(label)
+            return {
+                "status": "not_found",
+                "message": (
+                    f"No KEGG pathway matching '{pathway_term}' was found for the selected genes. "
+                    + (f"Top KEGG candidates: {', '.join(available)}." if available else "")
+                ).strip(),
+                "kegg_pathway_path": "",
+                "genes": genes,
+                "requested_pathway_term": str(pathway_term or "").strip(),
+                "kegg_enrichr_results": preview_rows,
+            }
         results = gget.enrichr(
             genes=genes,
             database="KEGG_2021_Human",
