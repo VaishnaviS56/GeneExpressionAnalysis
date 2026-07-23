@@ -1,0 +1,29 @@
+---- Short descriptor explanation -----------
+
+lig_cov: percentage of ligand covered by the predicted pocket;
+poc_cov: percentage of the pocket covered by the co-crystallized ligand;
+
+Size and shape descriptors:
+volume: pocket volume in A^3 calculated via grid points;
+surface: pocket surface in A^2 calculated via grid points;
+lipo_surf: solvent accessible lipophilic surface;
+depth:  depth of the pocket in A;
+ellips c/a or b/a: ellipsoid main axes ratios, with a > b > c;
+enclosure: ratio of number of surface exposed (lid) to hull grid points;
+
+Functional group descriptors:
+H-don: number of hydrogen bond donors;
+H-acc: number of hydrogen bond acceptors;
+Met: number of metals;
+Hphob: number of hydrophobic contacts;
+siac ratio: relative number of hydrophobic SIACs;
+
+Element descriptors:
+nof_dif_atms:  number of surface atoms lining the pocket;
+elem_x: number of elements of specific type in active site; types: C, N, O, S or other (X);
+
+Amino acid composition:
+aa_apol, aa_pol, aa_pos, aa_neg: relative number of amino acids apolar, polar, positive, and negative);
+
+Amino acid descriptors:
+ALA, ARG,...: number of amino acids in pocket, 3-letter code of 20 amino acid types;

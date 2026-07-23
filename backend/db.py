@@ -80,6 +80,7 @@ def init_db() -> None:
                 memory_downregulated_genes_json TEXT NOT NULL DEFAULT '[]',
                 memory_deg_analysis_json TEXT NOT NULL DEFAULT '{}',
                 memory_deg_gene_records_json TEXT NOT NULL DEFAULT '[]',
+                memory_srp_metadata_result_json TEXT NOT NULL DEFAULT '{}',
                 memory_control_name TEXT NOT NULL DEFAULT '',
                 memory_test_name TEXT NOT NULL DEFAULT '',
                 memory_enrichr_json TEXT NOT NULL DEFAULT '{}',
@@ -103,6 +104,7 @@ def init_db() -> None:
                 chat_id INTEGER NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
+                meta_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE
             );
@@ -117,6 +119,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE chats ADD COLUMN memory_downregulated_genes_json TEXT NOT NULL DEFAULT '[]'")
         if "memory_deg_gene_records_json" not in columns:
             conn.execute("ALTER TABLE chats ADD COLUMN memory_deg_gene_records_json TEXT NOT NULL DEFAULT '[]'")
+        if "memory_srp_metadata_result_json" not in columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN memory_srp_metadata_result_json TEXT NOT NULL DEFAULT '{}'")
         if "memory_control_name" not in columns:
             conn.execute("ALTER TABLE chats ADD COLUMN memory_control_name TEXT NOT NULL DEFAULT ''")
         if "memory_test_name" not in columns:
@@ -139,6 +143,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE chats ADD COLUMN memory_slice_result_json TEXT NOT NULL DEFAULT '{}'")
         if "last_meta_json" not in columns:
             conn.execute("ALTER TABLE chats ADD COLUMN last_meta_json TEXT NOT NULL DEFAULT '{}'")
+
+        message_columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        if "meta_json" not in message_columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
 
 
 def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:

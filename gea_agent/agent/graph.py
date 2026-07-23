@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from gea_agent.agent.state import AgentState
 from gea_agent.config import SETTINGS
 from gea_agent.tools.disease_literature import fetch_openalex_papers_and_genes, identify_disease_from_query
+from gea_agent.tools.druggability import run_druggability_analysis_safe, run_pdb_visualization_safe
 from gea_agent.tools.deg_analysis import run_deg_r_analysis
 from gea_agent.tools.enrichr import enrichr_pathways
 from gea_agent.tools.extract_genes import extract_genes_from_text
@@ -30,6 +31,7 @@ from gea_agent.tools.pubchem import query_pubchem_drug
 from gea_agent.tools.research_literature import run_publication_research_assistant_safe
 from gea_agent.tools.random_walk_restart import top_rwr_genes
 from gea_agent.tools.result_utils import normalize_tool_result, sanitize_exception_message, tool_error_result
+from gea_agent.tools.srp_metadata import fetch_srp_metadata_summary_safe
 from gea_agent.tools.string_local_graph import build_weighted_graph_from_string_files, load_gene_to_string_id
 from gea_agent.tools.synthesizer import synthesize_technical_response
 from gea_agent.tools.primekg import query_primekg
@@ -45,25 +47,30 @@ MAX_AGENT_STEPS = 10
 MAX_LITERATURE_CALLS_PER_QUERY = 2
 
 TOOL_USE_INSTRUCTIONS = '''
-Tool selection guide:
-1. deg_analysis: Use when the request includes SRP accessions or asks for differential expression between cohorts. Extract and pass `srp_ids`, `control_name`, and `test_name` whenever possible, and reuse stored cohort labels on follow-up turns.
-2. pathway: Use as the default enrichment specialist for pathway and GO-term questions. Prefer stored DEG genes when the request refers to up-regulated, down-regulated, or previously identified DEGs.
-3. rwr_analysis: Use when the task is to prioritize candidate genes or targets from a gene set. The input genes may come from the user, literature extraction, memory lookup, or stored DEG results.
-4. literature: Use when the user wants literature-backed answers, references, disease context, gene-specific evidence, or paper-derived mechanisms. This tool can search OpenAlex, PubMed, and Google Scholar, and it can ground follow-up literature questions on explicit genes, stored genes, or disease context from memory.
-4b. research_literature: Use when the user wants the LLM to answer the question directly in the same turn using a literature-assistant style response and include references in the final answer. Prefer this for requests like "explain with references", "answer using literature", or "give me references/citations".
-5. identify_disease_from_query: Use when the next step depends on a disease label and the query implies one but does not state it in a clean structured way.
-6. primekg_query: Use for local biomedical graph questions, especially multi-hop relationship discovery across genes, drugs, diseases, phenotypes, and pathways.
-7. opentargets_association: Use for gene-to-disease association evidence, disease checks for a gene or gene set, and drug associations tied to a gene.
-8. l1000cds2_query: Use when the user asks for LINCS/L1000/L1000CDS2 drug matches with drug induced gene expression or reversal compounds based on up-regulated and down-regulated genes. Prefer stored DEG memory for the gene lists and extract cell-line names from the query when present.
-9. pubchem_drug_lookup: Use when the user asks about a drug or compound and wants PubChem-derived details, especially if they want likely genes, pathways, or diseases identified from the PubChem annotations.
-10. hypothesis: Use when the user asks for experimental validation ideas, mechanistic hypotheses, or follow-up experiments. This tool has access to the full prior user/assistant transcript plus stored memory and can include literature references if similar experiments appear to have already been reported.
-11. visualize: Use only when the user explicitly asks for a visual output such as a network, KEGG pathway image, or volcano plot.
-12. memory_lookup: Use for follow-up questions that can be answered from stored pathway overlap genes, GO terms, DEG sets, or simple intersections/membership checks.
-13. state_lookup: Use as the raw state inspector fallback when the user asks what is stored in memory, wants the length of a variable, or wants the literal value of any field in the agent state.
-14. memory_slice: Use when the user asks for top N or bottom N from any stored list-like state field. The selected slice should become reusable by downstream tools.
+Tool selection guide and capability boundaries:
+1. deg_analysis: Runs one supported DEG workflow only: DEE2 SRA project data identified by SRP accessions, analyzed with the configured R script that uses getDEE2/DEE2 inputs and DESeq2. Required parameters are `srp_ids`, `control_name`, and `test_name`; optional thresholds are `log2fold` and `padj`. Do not use for uploaded count matrices, GEO-only IDs without SRP accessions, single-cell data, proteomics, EdgeR, limma/Lemma, voom, NOISeq, custom design formulas, batch correction, or arbitrary local files. If the user requests an unsupported DEG source or method, say it is not available and name the supported option.
+1b. srp_metadata: Retrieves DEE2/SRA metadata for SRP accessions when a DEG request has SRP IDs but lacks exact control/test cohort labels. It returns DEE2 descriptions and SRA/BioSample-derived treatment, sample_name, and disease values to help the user choose labels. It does not run DEG analysis or infer a contrast by itself.
+2. pathway: Runs over-representation enrichment through Enrichr/gget only. Supported libraries are the configured Reactome, KEGG Human, and GO Biological Process/Molecular Function/Cellular Component sets. Inputs must be explicit genes or stored DEG/RWR/literature genes; use `direction` as `up`, `down`, or `all`, `gene_limit` for top-N gene selection, and `term_limit` for returned terms. Do not promise GSEA, ORA background customization beyond the tool's `background_genes`, WikiPathways, MSigDB, ReactomePA, clusterProfiler, or custom GMT support.
+3. rwr_analysis: Performs Random Walk with Restart over the configured local STRING network only. Seed priority is strict: explicit genes named by the user first, then overlapping genes from stored pathway/enrichment results, then stored DEG genes. Supported parameters include `genes`, `top_k`/`top_n`, `restart_prob`, and STRING file/score settings. Do not claim it uses BioGRID, IntAct, tissue-specific networks, directed causal edges, or a newly downloaded network.
+4. literature: Retrieves and ranks literature evidence through the agent's OpenAlex/PubMed/Google Scholar pipeline. It can use `disease_name`, `genes`, `top_n`, and `text`. Use it when the user asks to find/search/check evidence for a statement, claim, mechanism, biomarker, gene-disease link, or explicitly asks for PubMed/OpenAlex/Google Scholar/paper searches. Do not use it for full-text paywalled article extraction, systematic-review guarantees, clinical advice, or live database curation beyond the configured sources.
+4b. research_literature: Produces a literature-style answer with references from model knowledge, optionally grounded by provided disease/genes. It does not perform live retrieval and its references are best-effort/model-generated unless later verified. Use for broad research, investigate, review, explain, summarize, overview, or "what is known about" requests that do not specifically ask to find/search/check evidence or run a PubMed/OpenAlex/Google Scholar/paper search; do not present its citations as newly searched or verified.
+5. identify_disease_from_query: Extracts a disease label from text only. It does not validate diagnosis, map ontology IDs, or prove disease-gene associations.
+6. primekg_query: Queries the configured local PrimeKG/Neo4j graph using read-only Cypher. It can answer graph relationships among PrimeKG entities such as genes/proteins, diseases, drugs, pathways, phenotypes, anatomy, biological processes, molecular functions, cellular components, and exposures. Do not use it for live web knowledge, non-PrimeKG facts, graph writes, schema changes, or unsupported labels/relationship types.
+7. opentargets_association: Queries OpenTargets for gene-disease associations and gene-linked drugs, with gene normalization to Ensembl IDs via MyGene. Use for association evidence and top disease/drug lookups. Do not use it for pathway enrichment, DEG computation, PubChem chemistry, PrimeKG paths, or full clinical trial interpretation.
+8. l1000cds2_query: Queries L1000CDS2 for small-molecule signatures from separate up-regulated and down-regulated gene lists. It supports reverse mode by default and mimic/aggravate mode when requested, optional cell-line filters, combination/share flags, and result limits. Do not use it for CMap APIs outside L1000CDS2, arbitrary drug mechanism lookup, or when only one undirected gene list is available unless a split is clearly specified or stored DEG directions exist.
+9. pubchem_drug_lookup: Queries PubChem for a named compound, `pert_desc`, or BRD-like `pert_id`, then summarizes compound properties, synonyms, descriptions, and annotations. It can infer genes/pathways/diseases only when supported by returned PubChem text. Do not use it for drug perturbation signatures, L1000 ranking, target validation, clinical efficacy, or non-compound biomedical graph questions.
+10. hypothesis: Generates plausible biomedical hypotheses and conceptual validation experiment ideas from the conversation and stored analysis memory only. It can suggest experiment designs, readouts, controls, expected observations, interpretation, caveats, rationale, and key assumptions. It does not validate hypotheses against external sources, search literature, cite references, assess novelty, retrieve new evidence, or provide step-by-step wet-lab protocols.
+11. visualize: Creates only supported visual artifacts: `network` for STRING/PyVis HTML, `kegg` for KEGG/gget pathway image, and `volcano` for DEG volcano HTML. It needs stored graph/genes/pathway/DEG rows or explicit genes. Do not use it for heatmaps, PCA, UMAP, boxplots, survival plots, circos plots, dashboards, or custom figures unless implemented as a supported visualization type.
+12. memory_lookup: Answers intersections, overlap-gene lookups, membership checks, and stored pathway/GO/DEG matching from current chat memory only. Do not use it for new analysis or external data.
+13. state_lookup: Inspects literal stored state fields, values, and counts. Do not use it for biological interpretation or to invent missing outputs.
+14. memory_slice: Selects top N and/or bottom N items from stored list-like state fields and makes that slice reusable. Do not use it for statistical ranking unless the stored list already has meaningful order.
+15. druggability: Runs structure-backed binding-pocket/druggability analysis for one gene. It resolves the gene to UniProt, prefers an RCSB PDB when available, falls back to an AlphaFold PDB model, runs PDBFixer/OpenMM sanitization when installed, uploads the sanitized PDB to ProteinsPlus, submits a DoGSiteScorer job, waits for completion, downloads the result table plus top pocket residue/map files, and returns local file paths. Use only when the user asks for druggability, binding pockets, DoGSite, protein pocket prediction, or structure-based target assessment for a specific gene. It requires internet access and the remote ProteinsPlus service; if PDBFixer is missing, the tool reports that and uses the original PDB as a fallback.
+16. pdb_visualizer: Fetches and visualizes a protein structure without running DoGSite. It accepts a gene symbol, UniProt accession, protein label, or direct PDB ID, prefers RCSB where available, falls back to AlphaFold via the latest AlphaFold API PDB URL, saves the PDB file, and creates an interactive 3Dmol HTML viewer. Use when the user asks to view, visualize, fetch, or show a PDB/protein structure for a gene/protein and does not ask for druggability or pocket scoring.
 
 Operational guidance:
+- Be conversational in direct replies: acknowledge what the user asked, state what can be done, and after completed analyses offer one concrete follow-up the agent can run next.
 - If the user asks a simple non-technical question or casual follow-up, answer directly without tools.
+- If the user requests a tool, source, method, input type, or output that is outside the capability boundaries above, do not call a substitute tool silently. Clearly say the requested capability is not available and offer the closest supported alternative.
 - Call at most one specialist at a time. After each tool result, reassess whether the user is answered or whether another specialist would materially improve the result.
 - Credible multi-specialist chains are encouraged when the user asks for a workflow, for example DEG -> pathway -> visualization, DEG -> RWR -> PrimeKG/OpenTargets, literature -> RWR, or L1000CDS2 -> PubChem.
 - Keep chains bounded and purposeful. Do not call a specialist just because it is available; each call must add evidence or an artifact the user requested.
@@ -74,9 +81,10 @@ Operational guidance:
 - Use `primekg_query` first for "what connects", "what links", mediator, multi-hop, and graph-neighborhood questions.
 - Use `opentargets_association` when the main task is evidence-backed association rather than broader graph exploration.
 - For stored DEG follow-ups, interpret positive `log2FoldChange` as up-regulated and negative `log2FoldChange` as down-regulated.
+- For DEG requests with SRP IDs but missing or ambiguous control/test labels, call `srp_metadata` first so the user can select exact cohort labels from DEE2/SRA metadata.
 - If a specialist is used, let the workflow continue through the specialist/final synthesis path rather than answering from partial assumptions.
-- Gemini/Gemma tool-calling rule for DEG requests: when a query contains SRP accessions, call `deg_analysis` and place those accessions in the structured `srp_ids` list instead of leaving them only in prose.
-- Preferred `deg_analysis` argument shape: `{"srp_ids":["SRP123456"],"control_name":"control cohort","test_name":"test cohort","text":"full user request"}`.
+- Gemini/Gemma tool-calling rule for DEG requests: when a query contains SRP accessions and no unsupported DEG method/source is requested, call `deg_analysis` and place those accessions in the structured `srp_ids` list instead of leaving them only in prose.
+- Preferred `deg_analysis` argument shape: `{"srp_ids":["SRP123456"],"control_name":"control cohort","test_name":"test cohort","log2fold":1.0,"padj":0.05,"text":"full user request"}`.
 '''
 
 
@@ -306,6 +314,10 @@ def _hypothesis_requested(text: str | None) -> bool:
             "experimental validation",
             "follow-up experiment",
             "follow up experiment",
+            "generate a hypothesis",
+            "generate hypotheses",
+            "propose a hypothesis",
+            "propose hypotheses",
             "how can i validate",
             "what experiment should",
             "what experiments should",
@@ -465,12 +477,78 @@ def _looks_like_literature_query(text: str | None) -> bool:
         "pubmed",
         "google scholar",
         "openalex",
+        "evidence",
         "study",
         "studies",
     )
     if not any(marker in lowered for marker in literature_markers):
         return False
     return True
+
+
+def _looks_like_research_literature_query(text: str | None) -> bool:
+    query = str(text or "").lower()
+    if _looks_like_literature_query(query):
+        return True
+    research_markers = (
+        "research",
+        "investigate",
+        "look into",
+        "review",
+        "overview",
+        "background on",
+        "what is known about",
+        "tell me about",
+        "explain",
+        "summarize",
+    )
+    return any(marker in query for marker in research_markers)
+
+
+def _evidence_statement_search_requested(text: str | None) -> bool:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return False
+    evidence_markers = (
+        "find evidence",
+        "find the evidence",
+        "look for evidence",
+        "search for evidence",
+        "show evidence",
+        "give evidence",
+        "evidence for",
+        "evidence that",
+        "supporting evidence",
+        "literature evidence",
+        "papers supporting",
+        "studies supporting",
+        "is there evidence",
+        "any evidence",
+    )
+    return any(marker in query for marker in evidence_markers)
+
+
+def _explicit_live_literature_search_requested(text: str | None) -> bool:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return False
+    live_markers = (
+        "pubmed",
+        "openalex",
+        "google scholar",
+        "search literature",
+        "search the literature",
+        "search papers",
+        "find papers",
+        "find publications",
+        "find studies",
+        "lookup papers",
+        "look up papers",
+        "paper search",
+        "publication search",
+        "study search",
+    )
+    return any(marker in query for marker in live_markers)
 
 
 def _should_force_literature_tool(state: AgentState) -> bool:
@@ -498,16 +576,17 @@ def _should_force_literature_tool(state: AgentState) -> bool:
     if any(marker in lowered for marker in explicit_non_lit_markers):
         return False
 
-    query_genes = extract_genes_from_text(query, mode="strict")
-    remembered_genes = _literature_state_gene_candidates(state)
-    disease_hint = str(state.get("disease_name") or state.get("memory_disease_name") or "").strip()
-    return bool(query_genes or remembered_genes or disease_hint)
+    return bool(_evidence_statement_search_requested(query) or _explicit_live_literature_search_requested(query))
 
 
 def _should_force_research_literature_tool(state: AgentState) -> bool:
     query = str(state.get("query") or "")
     lowered = query.lower()
-    if not _looks_like_literature_query(query):
+    if not _looks_like_research_literature_query(query):
+        return False
+    if _evidence_statement_search_requested(query):
+        return False
+    if _explicit_live_literature_search_requested(query):
         return False
 
     explicit_non_lit_markers = (
@@ -537,6 +616,14 @@ def _should_force_research_literature_tool(state: AgentState) -> bool:
         "answer with citations",
         "using literature",
         "use literature",
+        "research",
+        "investigate",
+        "look into",
+        "review",
+        "overview",
+        "background on",
+        "what is known about",
+        "tell me about",
         "explain",
         "summarize",
     )
@@ -572,6 +659,280 @@ def _is_simple_conversational_query(text: str | None) -> bool:
         "thank you ",
     )
     return any(query.startswith(prefix) for prefix in simple_prefixes)
+
+
+def _unsupported_deg_request_message(text: str | None) -> str:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return ""
+
+    deg_requested = any(
+        marker in query
+        for marker in (
+            "deg",
+            "diferential expression",
+            "diferentially expressed",
+            "differential expression",
+            "differentially expressed",
+            "deseq",
+            "deseq2",
+            "edger",
+            "edge r",
+            "edge-r",
+            "limma",
+            "lemma",
+            "voom",
+            "noiseq",
+        )
+    )
+    if not deg_requested:
+        return ""
+
+    unsupported_methods = {
+        "edger": "edgeR",
+        "edge r": "edgeR",
+        "edge-r": "edgeR",
+        "limma": "limma",
+        "lemma": "limma/Lemma",
+        "voom": "voom",
+        "noiseq": "NOISeq",
+    }
+    requested_methods = [
+        label
+        for marker, label in unsupported_methods.items()
+        if marker in query
+    ]
+    if requested_methods:
+        methods = ", ".join(dict.fromkeys(requested_methods))
+        return (
+            f"{methods} is not available in this agent's DEG workflow. "
+            "The supported DEG path uses DEE2 datasets identified by SRP accession IDs and runs DESeq2 through the configured R script. "
+            "If you provide SRP IDs plus control and test cohort labels, I can run that DESeq2-based DEE2 analysis."
+        )
+
+    unsupported_sources = {
+        "geo": "GEO-only accessions",
+        "gse": "GSE/GEO-only accessions",
+        "uploaded": "uploaded files",
+        "upload": "uploaded files",
+        "count matrix": "custom count matrices",
+        "counts matrix": "custom count matrices",
+        "single cell": "single-cell data",
+        "scrna": "single-cell data",
+        "proteomics": "proteomics data",
+    }
+    requested_sources = [
+        label
+        for marker, label in unsupported_sources.items()
+        if marker in query
+    ]
+    if requested_sources and not extract_srp_ids_from_text(str(text or "")):
+        sources = ", ".join(dict.fromkeys(requested_sources))
+        return (
+            f"{sources} are not available for DEG analysis in this agent unless they resolve to DEE2 SRP accessions. "
+            "The supported DEG path is DEE2 SRP data analyzed with DESeq2. "
+            "Send SRP IDs plus control and test cohort labels to run it."
+        )
+
+    return ""
+
+
+def _looks_like_deg_analysis_query(text: str | None) -> bool:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return False
+    return any(
+        marker in query
+        for marker in (
+            "deg",
+            "differential expression",
+            "differentially expressed",
+            "diferential expression",
+            "diferentially expressed",
+            "differentially expressed genes",
+            "diferentially expressed genes",
+            "identify differential",
+            "identify diferential",
+        )
+    )
+
+
+def _looks_like_srp_metadata_query(text: str | None) -> bool:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return False
+    return any(
+        marker in query
+        for marker in (
+            "srp metadata",
+            "sra metadata",
+            "dee2 metadata",
+            "metadata",
+            "sample labels",
+            "sample names",
+            "treatment values",
+            "cohort labels",
+            "control and test",
+            "control/test",
+            "what are the groups",
+            "which groups",
+        )
+    )
+
+
+def _deg_group_labels_available(state: AgentState, text: str | None, args: dict[str, Any] | None = None) -> bool:
+    args = args or {}
+    control_name = " ".join(
+        str(args.get("control_name") or state.get("control_name") or state.get("memory_control_name") or "").split()
+    ).strip()
+    test_name = " ".join(
+        str(args.get("test_name") or state.get("test_name") or state.get("memory_test_name") or "").split()
+    ).strip()
+    if control_name and test_name:
+        return True
+
+    parsed_groups = _extract_deg_group_labels_from_text(text)
+    return bool(
+        (control_name or str(parsed_groups.get("control_name") or "").strip())
+        and (test_name or str(parsed_groups.get("test_name") or "").strip())
+    )
+
+
+def _should_force_srp_metadata(state: AgentState) -> bool:
+    query = str(state.get("query") or "")
+    srp_ids = _normalize_srp_ids(state.get("srp_ids")) or _normalize_srp_ids(query)
+    if not srp_ids:
+        return False
+    if _ensure_dict(state.get("srp_metadata_result")):
+        return False
+    if _looks_like_srp_metadata_query(query):
+        return True
+    if not _looks_like_deg_analysis_query(query):
+        return False
+    return not _deg_group_labels_available(state, query)
+
+
+def _looks_like_druggability_query(text: str | None) -> bool:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return False
+    return any(
+        marker in query
+        for marker in (
+            "druggability",
+            "druggable",
+            "binding pocket",
+            "binding pockets",
+            "protein pocket",
+            "protein pockets",
+            "pocket prediction",
+            "dogsite",
+            "dogsite scorer",
+            "dogsitescorer",
+            "proteins.plus",
+            "proteins plus",
+            "structure-based target",
+            "structure based target",
+        )
+    )
+
+
+def _looks_like_pdb_visualizer_query(text: str | None) -> bool:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return False
+    if _looks_like_druggability_query(query):
+        return False
+    return any(
+        marker in query
+        for marker in (
+            "pdb viewer",
+            "pdb visualizer",
+            "visualize pdb",
+            "visualise pdb",
+            "show pdb",
+            "fetch pdb",
+            "download pdb",
+            "protein structure",
+            "visualize protein",
+            "visualise protein",
+            "show protein",
+            "view protein",
+            "3d structure",
+            "3d protein",
+            "alphafold structure",
+            "alphafold pdb",
+        )
+    )
+
+
+def _should_force_pdb_visualizer(state: AgentState) -> bool:
+    if not _looks_like_pdb_visualizer_query(state.get("query")):
+        return False
+    query = str(state.get("query") or "")
+    query_genes = extract_genes_from_text(query, mode="strict")
+    pdb_ids = re.findall(r"\b[0-9][A-Za-z0-9]{3}\b", query)
+    existing = _ensure_dict(state.get("pdb_visualization_result"))
+    existing_gene = str(existing.get("gene") or existing.get("uniprot_id") or existing.get("pdb_id") or "").strip().upper()
+    current_candidates = [str(value).strip().upper() for value in (query_genes + pdb_ids) if str(value).strip()]
+    if existing_gene and current_candidates and all(value == existing_gene for value in current_candidates):
+        return False
+    return bool(current_candidates or state.get("genes") or state.get("memory_deg_genes"))
+
+
+def _should_force_druggability(state: AgentState) -> bool:
+    if not _looks_like_druggability_query(state.get("query")):
+        return False
+    query_genes = extract_genes_from_text(str(state.get("query") or ""), mode="strict")
+    existing_gene = str(_ensure_dict(state.get("druggability_result")).get("gene") or "").strip().upper()
+    if existing_gene and not any(str(gene).strip().upper() != existing_gene for gene in query_genes):
+        return False
+    return bool(query_genes or state.get("genes") or state.get("memory_deg_genes"))
+
+
+def _should_force_deg_analysis(state: AgentState) -> bool:
+    query = str(state.get("query") or "")
+    if _unsupported_deg_request_message(query):
+        return False
+    srp_ids = _normalize_srp_ids(state.get("srp_ids")) or _normalize_srp_ids(query)
+    if not srp_ids:
+        return False
+    if isinstance(state.get("deg_analysis"), dict) and state.get("deg_analysis"):
+        return False
+    if not _deg_group_labels_available(state, query):
+        return False
+    return _looks_like_deg_analysis_query(query)
+
+
+def _extract_deg_group_labels_from_text(text: str | None) -> dict[str, str]:
+    query = " ".join(str(text or "").split()).strip()
+    if not query:
+        return {"control_name": "", "test_name": ""}
+
+    def find_label(patterns: tuple[str, ...]) -> str:
+        for pattern in patterns:
+            match = re.search(pattern, query, flags=re.IGNORECASE)
+            if not match:
+                continue
+            value = str(match.group(1) or "").strip().strip("\"'` .,:;")
+            value = " ".join(value.split())
+            if value:
+                return value
+        return ""
+
+    control_name = find_label(
+        (
+            r"\bcontrol\s+(?:as|is|=|:)\s+[\"']([^\"']+)[\"']",
+            r"\bcontrol\s+(?:as|is|=|:)\s+(.+?)(?:\s+\band\b\s+test\b|\s+\bvs\b|\s+\bversus\b|$)",
+        )
+    )
+    test_name = find_label(
+        (
+            r"\btest\s+(?:as|is|=|:)\s+[\"']([^\"']+)[\"']",
+            r"\btest\s+(?:as|is|=|:)\s+(.+?)(?:\s+\band\b\s+control\b|\s+\bvs\b|\s+\bversus\b|$)",
+        )
+    )
+    return {"control_name": control_name, "test_name": test_name}
 
 
 def _looks_like_pathway_enrichment_query(text: str | None) -> bool:
@@ -705,6 +1066,72 @@ def _memory_lookup_gene_candidates(state: AgentState) -> list[str]:
     return [str(value).strip().upper() for value in genes if str(value).strip()]
 
 
+def _query_gene_candidates(text: str | None) -> list[str]:
+    query = str(text or "")
+    strict_genes = [
+        str(value).strip().upper()
+        for value in extract_genes_from_text(query, mode="strict")
+        if str(value).strip()
+    ]
+    uppercase_symbols: list[str] = []
+    blocked = {
+        "DEG",
+        "DEGS",
+        "GO",
+        "KEGG",
+        "RWR",
+        "SRP",
+        "STRING",
+    }
+    for token in re.findall(r"\b[A-Z0-9]{2,12}\b", query):
+        symbol = token.strip().upper()
+        if symbol in blocked or symbol.startswith("SRP") or symbol.isdigit():
+            continue
+        if not re.search(r"[A-Z]", symbol):
+            continue
+        uppercase_symbols.append(symbol)
+    return list(
+        dict.fromkeys(
+            strict_genes + uppercase_symbols
+        )
+    )
+
+
+def _enrichr_overlap_gene_candidates(
+    state: AgentState,
+    *,
+    query: str = "",
+    limit: int | None = None,
+) -> list[str]:
+    effective_limit = limit if isinstance(limit, int) and limit > 0 else 50
+    pathway_term = _extract_requested_pathway_name(query)
+    if pathway_term.lower() in {"this", "it", "that", "these", "the result", "the results", "the pathway", "the pathways"}:
+        pathway_term = ""
+
+    if pathway_term:
+        selected_term, _selected_library, _selected_rank = _find_enrichr_term_from_state(
+            state,
+            pathway_term,
+            query=query,
+        )
+        genes = _term_overlapping_genes(selected_term)
+        if genes:
+            return genes[:effective_limit]
+
+    genes: list[str] = []
+    libraries = _enrichr_libraries_from_state(state)
+    for terms in libraries.values():
+        if not isinstance(terms, list):
+            continue
+        for term in terms[:3]:
+            for gene in _term_overlapping_genes(term if isinstance(term, dict) else None):
+                if gene not in genes:
+                    genes.append(gene)
+                if len(genes) >= effective_limit:
+                    return genes
+    return genes
+
+
 def _resolve_rwr_source_genes(
     state: AgentState,
     args: dict[str, Any],
@@ -718,22 +1145,25 @@ def _resolve_rwr_source_genes(
         if isinstance(direct_genes, list) and direct_genes:
             return [str(value).strip().upper() for value in direct_genes if str(value).strip()], "tool_args"
 
-    if not _memory_gene_query_requested(query):
-        query_genes = [
-            str(value).strip().upper()
-            for value in extract_genes_from_text(query, mode="strict")
-            if str(value).strip()
-        ]
-        if query_genes:
-            return list(dict.fromkeys(query_genes)), "query_genes"
+    query_genes = _query_gene_candidates(query)
+    if query_genes:
+        return query_genes, "query_genes"
 
-    sliced_genes = _memory_slice_gene_candidates(state)
-    if sliced_genes:
-        return sliced_genes, "memory_slice"
+    pathway_genes = _enrichr_overlap_gene_candidates(
+        state,
+        query=query,
+        limit=_parse_top_n_from_text(query),
+    )
+    if pathway_genes:
+        return pathway_genes, "stored_enrichr_overlap_genes"
 
     memory_lookup_genes = _memory_lookup_gene_candidates(state)
     if memory_lookup_genes:
         return memory_lookup_genes, "memory_lookup"
+
+    sliced_genes = _memory_slice_gene_candidates(state)
+    if sliced_genes:
+        return sliced_genes, "memory_slice"
 
     direction = str(args.get("direction") or _deg_direction_from_query(query) or "all").strip().lower()
     top_n = args.get("top_n")
@@ -1032,6 +1462,8 @@ def _should_force_stored_pathway_visualization(state: AgentState) -> bool:
         return False
     if not any(token in query_norm for token in ("visualize", "visualise", "show", "plot", "render")):
         return False
+    if any(token in query_norm for token in ("connection", "connections", "connected", "interaction", "interactions", "rwr", "random walk", "network propagation")):
+        return False
 
     libraries = _enrichr_libraries_from_state(state)
     if not libraries:
@@ -1065,6 +1497,51 @@ def _should_force_rwr_visualization(state: AgentState) -> bool:
         or state.get("memory_rwr_genes")
     )
     return bool(wants_visual and wants_rwr_graph and has_rwr_memory)
+
+
+def _should_force_volcano_visualization(state: AgentState) -> bool:
+    query_norm = _normalize_text_token(state.get("query"))
+    if not query_norm or "volcano" not in query_norm:
+        return False
+    wants_visual = any(token in query_norm for token in ("visualize", "visualise", "show", "plot", "render", "make", "create", "generate"))
+    has_deg_rows = bool(state.get("deg_gene_records") or state.get("memory_deg_gene_records"))
+    return bool(wants_visual and has_deg_rows)
+
+
+def _should_force_pathway_rwr(state: AgentState) -> bool:
+    query_norm = _normalize_text_token(state.get("query"))
+    if not query_norm:
+        return False
+    if state.get("rwr_genes"):
+        return False
+
+    wants_connections = any(
+        marker in query_norm
+        for marker in (
+            "rwr",
+            "random walk",
+            "network propagation",
+            "prioritize",
+            "prioritise",
+            "candidate targets",
+            "target prioritization",
+            "target prioritisation",
+            "connections",
+            "connection",
+            "connected",
+            "interaction",
+            "interactions",
+            "around this",
+            "around these",
+            "around the pathway",
+            "around the pathways",
+        )
+    )
+    if not wants_connections:
+        return False
+    if any(marker in query_norm for marker in ("primekg", "knowledge graph", "opentargets", "pubchem", "l1000", "l1000cds2")):
+        return False
+    return bool(_enrichr_overlap_gene_candidates(state, query=str(state.get("query") or ""), limit=_parse_top_n_from_text(state.get("query"))))
 
 
 def _should_force_memory_lookup(state: AgentState) -> bool:
@@ -2075,9 +2552,30 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
             "status": deg_analysis.get("status"),
             "log2fold": deg_analysis.get("log2fold"),
             "padj": deg_analysis.get("padj"),
-            "thresholds_applied_post_hoc": deg_analysis.get("thresholds_applied_post_hoc"),
+            "thresholds_applied": deg_analysis.get("thresholds_applied"),
             "genes": deg_analysis.get("genes", [])[:20] if isinstance(deg_analysis.get("genes"), list) else [],
             "rows": len(deg_analysis.get("rows", [])) if isinstance(deg_analysis.get("rows"), list) else 0,
+        }
+    if isinstance(result.get("srp_metadata"), list):
+        payload["srp_metadata"] = [
+            {
+                "srp_id": row.get("srp_id"),
+                "dee2_row_count": row.get("dee2_row_count"),
+                "sra_run_count": row.get("sra_run_count"),
+                "geo_series": row.get("geo_series", [])[:10] if isinstance(row.get("geo_series"), list) else [],
+                "descriptions": row.get("descriptions", [])[:8] if isinstance(row.get("descriptions"), list) else [],
+                "field_summaries": row.get("field_summaries", {}),
+                "metadata_preview": row.get("metadata_preview", [])[:10] if isinstance(row.get("metadata_preview"), list) else [],
+            }
+            for row in result["srp_metadata"][:5]
+            if isinstance(row, dict)
+        ]
+    if isinstance(result.get("srp_metadata_result"), dict):
+        srp_metadata_result = result["srp_metadata_result"]
+        payload["srp_metadata_result"] = {
+            "status": srp_metadata_result.get("status"),
+            "srp_ids": srp_metadata_result.get("srp_ids", [])[:20] if isinstance(srp_metadata_result.get("srp_ids"), list) else [],
+            "srp_metadata": srp_metadata_result.get("srp_metadata", [])[:5] if isinstance(srp_metadata_result.get("srp_metadata"), list) else [],
         }
     if isinstance(result.get("deg_gene_records"), list):
         payload["deg_gene_records"] = [
@@ -2140,8 +2638,14 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
 
 def _infer_analysis_arm(state: AgentState) -> str:
     arm = str(state.get("analysis_arm") or "").strip().lower()
-    if arm in {"general", "srp", "disease", "memory_rwr", "pathway", "visualize", "primekg", "opentargets", "memory_lookup", "state_lookup", "memory_slice", "l1000cds2", "pubchem", "research_literature", "literature", "hypothesis"}:
+    if arm in {"general", "srp", "srp_metadata", "disease", "memory_rwr", "pathway", "visualize", "primekg", "opentargets", "memory_lookup", "state_lookup", "memory_slice", "l1000cds2", "pubchem", "research_literature", "literature", "hypothesis", "druggability", "pdb_visualizer"}:
         return arm
+    if state.get("pdb_visualization_result"):
+        return "pdb_visualizer"
+    if state.get("druggability_result"):
+        return "druggability"
+    if state.get("srp_metadata_result"):
+        return "srp_metadata"
     if state.get("visualization_result"):
         return "visualize"
     if state.get("hypothesis_result"):
@@ -2226,9 +2730,12 @@ def _build_system_prompt(state: AgentState) -> str:
         "memory_deg_gene_count": len(state.get("memory_deg_genes") or []),
         "memory_upregulated_gene_count": len(state.get("memory_upregulated_genes") or []),
         "memory_downregulated_gene_count": len(state.get("memory_downregulated_genes") or []),
+        "has_srp_metadata": bool(_ensure_dict(state.get("srp_metadata_result") or state.get("memory_srp_metadata_result"))),
         "memory_enrichr_libraries": sorted(list((_ensure_dict(state.get("enrichr") or state.get("memory_enrichr")).get("libraries") or {}).keys())),
         "memory_l1000_hits": len((_ensure_dict(state.get("l1000cds2_result") or state.get("memory_l1000cds2_result")).get("top_drugs") or [])),
         "has_pubchem_result": bool(_ensure_dict(state.get("pubchem_result") or state.get("memory_pubchem_result"))),
+        "has_druggability_result": bool(_ensure_dict(state.get("druggability_result") or state.get("memory_druggability_result"))),
+        "has_pdb_visualization_result": bool(_ensure_dict(state.get("pdb_visualization_result") or state.get("memory_pdb_visualization_result"))),
         "rwr_gene_count": len(state.get("rwr_genes") or []),
         "has_graph": bool(isinstance(state.get("graph"), nx.Graph) and state["graph"].number_of_nodes() > 0),
         "graph_summary": _graph_summary(state.get("graph") if isinstance(state.get("graph"), nx.Graph) else None),
@@ -2240,7 +2747,8 @@ def _build_system_prompt(state: AgentState) -> str:
         gemini_block = (
             "Gemini/Gemma tool-calling instructions:\n"
             "- Prefer explicit structured tool arguments over leaving values inside prose.\n"
-            "- When DEG analysis is needed and any SRP ID is present in the query or memory, call `deg_analysis` immediately.\n"
+            "- When DEG analysis is needed and any SRP ID plus exact control/test labels are present in the query or memory, call `deg_analysis` immediately.\n"
+            "- If exact control/test labels are missing, call `srp_metadata` first and include the SRP IDs in `srp_ids`.\n"
             "- Put SRP IDs in `srp_ids` as an uppercase JSON array such as [\"SRP277202\",\"SRP123456\"].\n"
             "- Also include `text` with the full user request so downstream normalization can recover cohort labels.\n"
             "- If cohort labels are uncertain, use empty strings instead of inventing them.\n"
@@ -2281,10 +2789,13 @@ def _build_system_prompt(state: AgentState) -> str:
         "- If a required input is missing, choose the tool that can recover it instead of asking the user unless the gap cannot be inferred or recovered.\n"
         "- For pathway enrichment, prefer stored DEG genes and respect up/down regulation cues.\n"
         "- For DEG analysis, extract control, test, and SRP identifiers from the query or memory before running the tool.\n"
+        "- If a DEG request has SRP IDs but no exact control/test labels, call `srp_metadata` instead of `deg_analysis`.\n"
         "- If SRP IDs are visible in the user request, they must appear in the `deg_analysis.srp_ids` tool argument as a list of strings.\n"
         "- If the user asks about stored memory, state variables, list lengths, or literal stored values, prefer `state_lookup`.\n"
         "- If the user asks for top N or bottom N values from stored state, prefer `memory_slice`.\n"
         "- If the user asks about overlap genes, intersections, or gene membership inside stored pathway/GO/DEG results, prefer `memory_lookup`.\n"
+        "- If the user asks for druggability, protein pockets, binding pockets, DoGSite, DOGSite, or structure-based target assessment for a gene, call `druggability`.\n"
+        "- If the user asks to fetch, view, show, or visualize a protein/PDB/AlphaFold structure without druggability scoring, call `pdb_visualizer`.\n"
         "- For visualization, use stored pathway overlaps, RWR targets, DEG rows, or graphs whenever available.\n"
         "- Do not invent unavailable data, hidden evidence, or tool outputs.\n"
         "- Stop using tools once the user's question is sufficiently answered with a tool-backed result.\n"
@@ -2320,6 +2831,8 @@ def _prepare_context(state: AgentState) -> AgentState:
         update["memory_deg_analysis"] = _ensure_dict(state.get("memory_deg_analysis"))
     if state.get("memory_deg_gene_records") is not None:
         update["memory_deg_gene_records"] = list(state.get("memory_deg_gene_records") or [])
+    if state.get("memory_srp_metadata_result") is not None:
+        update["memory_srp_metadata_result"] = _ensure_dict(state.get("memory_srp_metadata_result"))
     if state.get("memory_control_name") is not None:
         update["memory_control_name"] = str(state.get("memory_control_name") or "")
     if state.get("memory_test_name") is not None:
@@ -2342,6 +2855,10 @@ def _prepare_context(state: AgentState) -> AgentState:
         update["memory_pubchem_result"] = _ensure_dict(state.get("memory_pubchem_result"))
     if state.get("memory_hypothesis_result") is not None:
         update["memory_hypothesis_result"] = _ensure_dict(state.get("memory_hypothesis_result"))
+    if state.get("memory_druggability_result") is not None:
+        update["memory_druggability_result"] = _ensure_dict(state.get("memory_druggability_result"))
+    if state.get("memory_pdb_visualization_result") is not None:
+        update["memory_pdb_visualization_result"] = _ensure_dict(state.get("memory_pdb_visualization_result"))
     if state.get("memory_lookup_result") is not None:
         update["memory_lookup_result"] = _ensure_dict(state.get("memory_lookup_result"))
     if state.get("state_lookup_result") is not None:
@@ -2358,11 +2875,100 @@ def _prepare_context(state: AgentState) -> AgentState:
         update["pubchem_result"] = _ensure_dict(state.get("pubchem_result"))
     if state.get("hypothesis_result") is not None:
         update["hypothesis_result"] = _ensure_dict(state.get("hypothesis_result"))
+    if state.get("druggability_result") is not None:
+        update["druggability_result"] = _ensure_dict(state.get("druggability_result"))
+    if state.get("pdb_visualization_result") is not None:
+        update["pdb_visualization_result"] = _ensure_dict(state.get("pdb_visualization_result"))
     return update
 
 
 def _agent(state: AgentState) -> AgentState:
     _trace_tool_call("llm_agent")
+
+    unsupported_message = _unsupported_deg_request_message(state.get("query"))
+    if unsupported_message:
+        return {
+            "messages": [AIMessage(content=unsupported_message)],
+            "answer": unsupported_message,
+            "should_finalize": True,
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
+    if _should_force_pdb_visualizer(state):
+        query_text = str(state.get("query") or "")
+        query_genes = extract_genes_from_text(query_text, mode="strict")
+        pdb_ids = re.findall(r"\b[0-9][A-Za-z0-9]{3}\b", query_text)
+        gene = str((query_genes or state.get("genes") or state.get("memory_deg_genes") or [""])[0] or "").strip()
+        forced_call = {
+            "name": "pdb_visualizer",
+            "args": {
+                "gene": gene,
+                "pdb_id": str((pdb_ids or [""])[0] or "").strip(),
+            },
+            "id": "forced_pdb_visualizer_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
+    if _should_force_druggability(state):
+        query_text = str(state.get("query") or "")
+        query_genes = extract_genes_from_text(query_text, mode="strict")
+        gene = str((query_genes or state.get("genes") or state.get("memory_deg_genes") or [""])[0] or "").strip()
+        forced_call = {
+            "name": "druggability",
+            "args": {
+                "gene": gene,
+                "top_n": _parse_top_n_from_text(query_text) or 3,
+            },
+            "id": "forced_druggability_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
+    if _should_force_srp_metadata(state):
+        query_text = str(state.get("query") or "")
+        forced_call = {
+            "name": "srp_metadata",
+            "args": {
+                "srp_ids": _normalize_srp_ids(state.get("srp_ids")) or _normalize_srp_ids(query_text),
+                "text": query_text,
+            },
+            "id": "forced_srp_metadata_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
+    if _should_force_deg_analysis(state):
+        query_text = str(state.get("query") or "")
+        parsed_groups = _extract_deg_group_labels_from_text(query_text)
+        forced_call = {
+            "name": "deg_analysis",
+            "args": {
+                "srp_ids": _normalize_srp_ids(state.get("srp_ids")) or _normalize_srp_ids(query_text),
+                "control_name": str(state.get("control_name") or parsed_groups.get("control_name") or state.get("memory_control_name") or ""),
+                "test_name": str(state.get("test_name") or parsed_groups.get("test_name") or state.get("memory_test_name") or ""),
+                "text": query_text,
+            },
+            "id": "forced_deg_analysis_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
 
     if _should_force_memory_slice_for_research_query(state):
         query_text = str(state.get("query") or "")
@@ -2393,6 +2999,46 @@ def _agent(state: AgentState) -> AgentState:
                 "text": query_text,
             },
             "id": "forced_stored_pathway_visualization_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
+    if _should_force_volcano_visualization(state):
+        query_text = str(state.get("query") or "")
+        forced_call = {
+            "name": "visualize",
+            "args": {
+                "visualization_type": "volcano",
+                "text": query_text,
+            },
+            "id": "forced_volcano_visualization_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
+    if _should_force_pathway_rwr(state):
+        query_text = str(state.get("query") or "")
+        forced_genes = _query_gene_candidates(query_text) or _enrichr_overlap_gene_candidates(
+            state,
+            query=query_text,
+            limit=_parse_top_n_from_text(query_text),
+        )
+        forced_call = {
+            "name": "rwr_analysis",
+            "args": {
+                "genes": forced_genes,
+                "analysis_arm": "memory_rwr",
+                "text": query_text,
+            },
+            "id": "forced_pathway_rwr_call",
             "type": "tool_call",
         }
         response = AIMessage(content="", tool_calls=[forced_call])
@@ -2460,21 +3106,21 @@ def _agent(state: AgentState) -> AgentState:
             "step_count": int(state.get("step_count") or 0) + 1,
         }
 
-    if _should_force_research_literature_tool(state):
+    if _should_force_literature_tool(state):
         forced_genes = [
             str(value).strip().upper()
             for value in extract_genes_from_text(str(state.get("query") or ""), mode="strict")
             if str(value).strip()
         ]
         forced_call = {
-            "name": "research_literature",
+            "name": "literature",
             "args": {
-                "user_query": str(state.get("query") or ""),
                 "disease_name": str(state.get("disease_name") or state.get("memory_disease_name") or ""),
                 "genes": forced_genes,
                 "top_n": 20,
+                "text": str(state.get("query") or ""),
             },
-            "id": "forced_research_literature_call",
+            "id": "forced_literature_call",
             "type": "tool_call",
         }
         response = AIMessage(content="", tool_calls=[forced_call])
@@ -2492,11 +3138,10 @@ def _agent(state: AgentState) -> AgentState:
         forced_call = {
             "name": "hypothesis",
             "args": {
-                "validation_goal": str(state.get("query") or ""),
+                "hypothesis_goal": str(state.get("query") or ""),
                 "genes": forced_genes,
                 "disease_name": str(state.get("disease_name") or state.get("memory_disease_name") or ""),
                 "hypothesis_count": 3,
-                "include_references": True,
                 "text": str(state.get("query") or ""),
             },
             "id": "forced_hypothesis_call",
@@ -2508,21 +3153,21 @@ def _agent(state: AgentState) -> AgentState:
             "step_count": int(state.get("step_count") or 0) + 1,
         }
 
-    if _should_force_literature_tool(state):
+    if _should_force_research_literature_tool(state):
         forced_genes = [
             str(value).strip().upper()
             for value in extract_genes_from_text(str(state.get("query") or ""), mode="strict")
             if str(value).strip()
         ]
         forced_call = {
-            "name": "literature",
+            "name": "research_literature",
             "args": {
+                "user_query": str(state.get("query") or ""),
                 "disease_name": str(state.get("disease_name") or state.get("memory_disease_name") or ""),
                 "genes": forced_genes,
                 "top_n": 20,
-                "text": str(state.get("query") or ""),
             },
-            "id": "forced_literature_call",
+            "id": "forced_research_literature_call",
             "type": "tool_call",
         }
         response = AIMessage(content="", tool_calls=[forced_call])
@@ -2613,6 +3258,12 @@ def _run_extract_deg_groups(state: AgentState, args: dict[str, Any]) -> dict[str
         return {"control_name": control_name, "test_name": test_name}
 
     text = str(args.get("text") or state.get("query") or "")
+    parsed_groups = _extract_deg_group_labels_from_text(text)
+    control_name = control_name or str(parsed_groups.get("control_name") or "").strip()
+    test_name = test_name or str(parsed_groups.get("test_name") or "").strip()
+    if control_name and test_name:
+        return {"control_name": control_name, "test_name": test_name}
+
     llm = get_llm()
     response = llm.invoke(
         [
@@ -3013,13 +3664,13 @@ def _run_hypothesis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     }
     result = generate_experimental_hypotheses_safe(
         user_query=str(state.get("query") or args.get("text") or ""),
-        validation_goal=str(args.get("validation_goal") or state.get("query") or ""),
+        hypothesis_goal=str(args.get("hypothesis_goal") or args.get("validation_goal") or state.get("query") or ""),
         disease_name=str(args.get("disease_name") or state.get("disease_name") or state.get("memory_disease_name") or ""),
         genes=list(args.get("genes") or []),
         conversation_messages=list(state.get("messages") or []),
         memory_state=memory_state,
         hypothesis_count=int(args.get("hypothesis_count") or 3),
-        include_references=bool(args.get("include_references", True)),
+        include_references=False,
     )
     result["analysis_arm"] = "hypothesis"
     result["should_finalize"] = True
@@ -3132,6 +3783,82 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
         "deg_gene_records": deg_gene_records,
         "genes": _merge_unique(state.get("genes"), deg_genes),
     }
+
+
+def _run_srp_metadata(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
+    srp_ids = _normalize_srp_ids(args.get("srp_ids"))
+    if not srp_ids:
+        srp_ids = _normalize_srp_ids(state.get("srp_ids"))
+    if not srp_ids:
+        srp_ids = _normalize_srp_ids(args.get("text") or state.get("query") or "")
+    return fetch_srp_metadata_summary_safe(
+        srp_ids=srp_ids,
+        text=str(args.get("text") or state.get("query") or ""),
+        species=str(args.get("species") or "hsapiens"),
+        max_dee2_rows=int(args.get("max_dee2_rows") or 5000),
+        max_biosamples=int(args.get("max_biosamples") or 80),
+    )
+
+
+def _run_druggability(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
+    gene = str(args.get("gene") or "").strip()
+    if not gene:
+        extracted = extract_genes_from_text(str(state.get("query") or ""), mode="strict")
+        gene = str((extracted or [""])[0] or "").strip()
+    if not gene:
+        candidates = []
+        if isinstance(args.get("genes"), list):
+            candidates.extend(args.get("genes") or [])
+        candidates.extend(state.get("genes") or [])
+        candidates.extend(state.get("memory_deg_genes") or [])
+        for candidate in candidates:
+            text = str(candidate or "").strip()
+            if text:
+                gene = text
+                break
+
+    return run_druggability_analysis_safe(
+        gene=gene,
+        organism_id=int(args.get("organism_id") or 9606),
+        chain=str(args.get("chain") or ""),
+        ligand=str(args.get("ligand") or ""),
+        top_n=int(args.get("top_n") or 3),
+        output_dir=args.get("output_dir"),
+        dogsite_timeout_seconds=int(args.get("dogsite_timeout_seconds") or 900),
+        poll_interval_seconds=int(args.get("poll_interval_seconds") or 15),
+        pdbfixer_ph=float(args.get("pdbfixer_ph") or 7.0),
+    )
+
+
+def _run_pdb_visualizer(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
+    gene = str(args.get("gene") or "").strip()
+    pdb_id = str(args.get("pdb_id") or "").strip()
+    uniprot_id = str(args.get("uniprot_id") or "").strip()
+    protein = str(args.get("protein") or "").strip()
+    if not any((gene, pdb_id, uniprot_id, protein)):
+        query = str(state.get("query") or "")
+        pdb_ids = re.findall(r"\b[0-9][A-Za-z0-9]{3}\b", query)
+        if pdb_ids:
+            pdb_id = pdb_ids[0]
+        extracted = extract_genes_from_text(query, mode="strict")
+        if extracted:
+            gene = str(extracted[0])
+    if not any((gene, pdb_id, uniprot_id, protein)):
+        candidates = list(state.get("genes") or []) + list(state.get("memory_deg_genes") or [])
+        for candidate in candidates:
+            text = str(candidate or "").strip()
+            if text:
+                gene = text
+                break
+
+    return run_pdb_visualization_safe(
+        gene=gene,
+        protein=protein,
+        uniprot_id=uniprot_id,
+        pdb_id=pdb_id,
+        organism_id=int(args.get("organism_id") or 9606),
+        output_dir=args.get("output_dir"),
+    )
 
 
 def _run_build_string_graph(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
@@ -3535,7 +4262,7 @@ def _run_visualize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
         deg_rows = state.get("deg_gene_records") or state.get("memory_deg_gene_records") or []
         result = build_volcano_plot(
             deg_rows,
-            output_path=str(args.get("output_path") or "deg_volcano.png"),
+            output_path=str(args.get("output_path") or "deg_volcano.html"),
             pvalue_threshold=float(args.get("pvalue_threshold") or 0.05),
             log2fc_threshold=float(args.get("log2fc_threshold") or 1.0),
         )
@@ -3695,6 +4422,17 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
         call = _latest_tool_call(state, tool_name)
         args = dict(call.get("args") or {}) if call else {}
         _trace_tool_call(tool_name)
+
+        if tool_name == "srp_metadata":
+            result = _execute_tool_runner("srp_metadata", lambda: _run_srp_metadata(state, args))
+            update = _specialist_history_update(state, "srp_metadata", args, result)
+            update = {**update, **result}
+            update["analysis_arm"] = "srp_metadata"
+            update["srp_metadata_result"] = result
+            update["memory_srp_metadata_result"] = result
+            update["should_finalize"] = True
+            state = {**state, **update}
+            return {**state, "messages": _tool_observations(state, call, tool_name, result)}
 
         if tool_name == "deg_analysis":
             result = _execute_tool_runner("extract_srp_ids_from_text", lambda: _run_extract_srp_ids(state, args))
@@ -3900,6 +4638,32 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
                 update["memory_pubchem_result"] = result
             return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
 
+        if tool_name == "druggability":
+            result = _execute_tool_runner("druggability", lambda: _run_druggability(state, args))
+            update = _specialist_history_update(state, "druggability", args, result)
+            update = {**update, **result}
+            update["analysis_arm"] = "druggability"
+            update["druggability_result"] = result
+            update["memory_druggability_result"] = result
+            if result.get("gene"):
+                update["genes"] = _merge_unique(state.get("genes"), [str(result.get("gene") or "").strip().upper()])
+            update["answer"] = str(result.get("answer") or result.get("message") or "").strip()
+            update["should_finalize"] = True
+            return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
+
+        if tool_name == "pdb_visualizer":
+            result = _execute_tool_runner("pdb_visualizer", lambda: _run_pdb_visualizer(state, args))
+            update = _specialist_history_update(state, "pdb_visualizer", args, result)
+            update = {**update, **result}
+            update["analysis_arm"] = "pdb_visualizer"
+            update["pdb_visualization_result"] = result
+            update["memory_pdb_visualization_result"] = result
+            if result.get("gene"):
+                update["genes"] = _merge_unique(state.get("genes"), [str(result.get("gene") or "").strip().upper()])
+            update["answer"] = str(result.get("answer") or result.get("message") or "").strip()
+            update["should_finalize"] = True
+            return {**state, **update, "messages": _tool_observations(state, call, tool_name, result)}
+
         if tool_name == "synthesize_technical_response":
             result = _execute_tool_runner("synthesize_technical_response", lambda: _run_synthesize(state, args))
             update = _specialist_history_update(state, "synthesize_technical_response", args, result)
@@ -3921,6 +4685,57 @@ def _finalize(state: AgentState) -> AgentState:
 
     if state.get("tool_history"):
         analysis_arm = _infer_analysis_arm(state)
+        if analysis_arm == "srp_metadata" and answer:
+            graph = state.get("graph")
+            meta = {
+                "analysis_arm": analysis_arm,
+                "is_followup": bool(state.get("is_followup", False)),
+                "route_rationale": state.get("route_rationale", ""),
+                "srp_ids": list(state.get("srp_ids") or []),
+                "memory_srp_metadata_result": _ensure_dict(state.get("memory_srp_metadata_result")),
+                "srp_metadata_result": _ensure_dict(state.get("srp_metadata_result")),
+                "tool_history": list(state.get("tool_history") or [])[-10:],
+            }
+            return {
+                "answer": answer,
+                "meta": meta,
+                "analysis_arm": analysis_arm,
+                "graph": graph if isinstance(graph, nx.Graph) else None,
+            }
+        if analysis_arm == "druggability" and answer:
+            graph = state.get("graph")
+            meta = {
+                "analysis_arm": analysis_arm,
+                "is_followup": bool(state.get("is_followup", False)),
+                "route_rationale": state.get("route_rationale", ""),
+                "genes": list(state.get("genes") or []),
+                "druggability_result": _ensure_dict(state.get("druggability_result")),
+                "memory_druggability_result": _ensure_dict(state.get("memory_druggability_result")),
+                "tool_history": list(state.get("tool_history") or [])[-10:],
+            }
+            return {
+                "answer": answer,
+                "meta": meta,
+                "analysis_arm": analysis_arm,
+                "graph": graph if isinstance(graph, nx.Graph) else None,
+            }
+        if analysis_arm == "pdb_visualizer" and answer:
+            graph = state.get("graph")
+            meta = {
+                "analysis_arm": analysis_arm,
+                "is_followup": bool(state.get("is_followup", False)),
+                "route_rationale": state.get("route_rationale", ""),
+                "genes": list(state.get("genes") or []),
+                "pdb_visualization_result": _ensure_dict(state.get("pdb_visualization_result")),
+                "memory_pdb_visualization_result": _ensure_dict(state.get("memory_pdb_visualization_result")),
+                "tool_history": list(state.get("tool_history") or [])[-10:],
+            }
+            return {
+                "answer": answer,
+                "meta": meta,
+                "analysis_arm": analysis_arm,
+                "graph": graph if isinstance(graph, nx.Graph) else None,
+            }
         if analysis_arm in {"memory_lookup", "state_lookup", "memory_slice"}:
             lookup_result = (
                 state.get("memory_lookup_result")
@@ -3961,6 +4776,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "memory_downregulated_genes": list(state.get("memory_downregulated_genes") or []),
                 "memory_deg_analysis": _ensure_dict(state.get("memory_deg_analysis")),
                 "memory_deg_gene_records": list(state.get("memory_deg_gene_records") or []),
+                "memory_srp_metadata_result": _ensure_dict(state.get("memory_srp_metadata_result")),
                 "memory_disease_name": str(state.get("memory_disease_name") or ""),
                 "memory_openalex_genes": list(state.get("memory_openalex_genes") or []),
                 "memory_opentargets_results": list(state.get("memory_opentargets_results") or []),
@@ -3984,6 +4800,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "l1000cds2_result": _ensure_dict(state.get("l1000cds2_result")),
                 "pubchem_result": _ensure_dict(state.get("pubchem_result")),
                 "deg_analysis": _ensure_dict(state.get("deg_analysis")),
+                "srp_metadata_result": _ensure_dict(state.get("srp_metadata_result")),
                 "deg_genes": list(state.get("deg_genes") or []),
                 "upregulated_genes": list(state.get("upregulated_genes") or []),
                 "downregulated_genes": list(state.get("downregulated_genes") or []),
@@ -4039,6 +4856,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "memory_downregulated_genes": list(state.get("memory_downregulated_genes") or []),
                 "memory_deg_analysis": _ensure_dict(state.get("memory_deg_analysis")),
                 "memory_deg_gene_records": list(state.get("memory_deg_gene_records") or []),
+                "memory_srp_metadata_result": _ensure_dict(state.get("memory_srp_metadata_result")),
                 "memory_disease_name": str(state.get("memory_disease_name") or ""),
                 "memory_openalex_genes": list(state.get("memory_openalex_genes") or []),
                 "memory_l1000cds2_result": _ensure_dict(state.get("memory_l1000cds2_result")),
@@ -4120,6 +4938,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "hypothesis_result": _ensure_dict(state.get("hypothesis_result")),
                 "memory_lookup_result": _ensure_dict(state.get("memory_lookup_result")),
                 "deg_analysis": _ensure_dict(state.get("deg_analysis")),
+                "srp_metadata_result": _ensure_dict(state.get("srp_metadata_result")),
                 "deg_genes": list(state.get("deg_genes") or []),
                 "upregulated_genes": list(state.get("upregulated_genes") or []),
                 "downregulated_genes": list(state.get("downregulated_genes") or []),
@@ -4150,6 +4969,10 @@ def _finalize(state: AgentState) -> AgentState:
             specialist_payload = _ensure_dict(state.get("pubchem_result") or state.get("memory_pubchem_result"))
         elif analysis_arm == "opentargets":
             specialist_payload = _ensure_dict(state.get("opentargets_result"))
+        elif analysis_arm == "druggability":
+            specialist_payload = _ensure_dict(state.get("druggability_result") or state.get("memory_druggability_result"))
+        elif analysis_arm == "pdb_visualizer":
+            specialist_payload = _ensure_dict(state.get("pdb_visualization_result") or state.get("memory_pdb_visualization_result"))
         answer = synthesize_technical_response(
             user_query=str(state.get("query") or ""),
             analysis_arm=analysis_arm,
@@ -4182,6 +5005,10 @@ def _finalize(state: AgentState) -> AgentState:
             specialist_payload = _ensure_dict(state.get("pubchem_result") or state.get("memory_pubchem_result"))
         elif analysis_arm == "opentargets":
             specialist_payload = _ensure_dict(state.get("opentargets_result"))
+        elif analysis_arm == "druggability":
+            specialist_payload = _ensure_dict(state.get("druggability_result") or state.get("memory_druggability_result"))
+        elif analysis_arm == "pdb_visualizer":
+            specialist_payload = _ensure_dict(state.get("pdb_visualization_result") or state.get("memory_pdb_visualization_result"))
         elif analysis_arm == "memory_lookup":
             specialist_payload = _ensure_dict(state.get("memory_lookup_result"))
         elif analysis_arm == "state_lookup":
@@ -4221,6 +5048,7 @@ def _finalize(state: AgentState) -> AgentState:
         "memory_downregulated_genes": list(state.get("memory_downregulated_genes") or []),
         "memory_deg_analysis": _ensure_dict(state.get("memory_deg_analysis")),
         "memory_deg_gene_records": list(state.get("memory_deg_gene_records") or []),
+        "memory_srp_metadata_result": _ensure_dict(state.get("memory_srp_metadata_result")),
         "memory_disease_name": str(state.get("memory_disease_name") or ""),
         "memory_openalex_genes": list(state.get("memory_openalex_genes") or []),
         "memory_opentargets_results": list(state.get("memory_opentargets_results") or []),
@@ -4246,6 +5074,7 @@ def _finalize(state: AgentState) -> AgentState:
         "hypothesis_result": _ensure_dict(state.get("hypothesis_result")),
         "memory_lookup_result": _ensure_dict(state.get("memory_lookup_result")),
         "deg_analysis": _ensure_dict(state.get("deg_analysis")),
+        "srp_metadata_result": _ensure_dict(state.get("srp_metadata_result")),
         "deg_genes": list(state.get("deg_genes") or []),
         "upregulated_genes": list(state.get("upregulated_genes") or []),
         "downregulated_genes": list(state.get("downregulated_genes") or []),
@@ -4314,45 +5143,51 @@ def _tool_arg_list(value: Any) -> list[Any]:
 TOOL_SCHEMAS = [
     tool(
         "extract_genes_from_text",
-        description="Extract candidate gene symbols from free text.",
+        description="Extract candidate gene symbols from free text only. Parameters: `text`, optional `mode` (`strict` preferred) and optional `whitelist`. Does not validate disease associations or run analysis.",
         return_direct=False,
     )(lambda text, mode="strict", whitelist=None: {"genes": extract_genes_from_text(text, whitelist={str(value).strip().upper() for value in whitelist} if isinstance(whitelist, list) else None, mode=mode)}),
     tool(
         "extract_srp_ids_from_text",
-        description="Extract SRP accession identifiers from text.",
+        description="Extract SRP accession identifiers from text only. Parameters: `text`. It does not resolve GEO/GSE IDs, download DEE2 data, or run DEG analysis.",
         return_direct=False,
     )(lambda text: {"srp_ids": extract_srp_ids_from_text(text)}),
     tool(
         "identify_disease_from_query",
-        description="Infer the disease name from the user query.",
+        description="Infer a disease name from the user query. Parameters: `query`. It does not validate ontology IDs, diagnose disease, or establish gene-disease associations.",
         return_direct=False,
     )(lambda query: identify_disease_from_query(query)),
     tool(
         "literature",
-        description="Search biomedical literature across OpenAlex, PubMed, and Google Scholar. Use for disease literature, gene-specific literature, mechanism questions, biomarker evidence, or follow-up questions about stored gene lists. You can pass `disease_name`, `genes`, and `top_n`.",
+        description="Retrieve literature evidence through the configured OpenAlex/PubMed/Google Scholar pipeline. Parameters: `disease_name`, `genes`, `top_n`, `text`. Use when the user asks to find/search/check evidence for a statement, claim, mechanism, biomarker, gene-disease link, or explicitly asks for PubMed/OpenAlex/Google Scholar/paper searches. Cannot access paywalled full text, guarantee systematic-review completeness, provide clinical advice, or query unsupported literature sources.",
         return_direct=False,
     )(lambda disease_name="", genes=None, top_n=20, text=None: {"disease_name": disease_name, "genes": list(genes or []), "top_n": int(top_n), "text": text}),
     tool(
         "research_literature",
-        description="Answer the user's question in a literature-assistant style and include references in the response. Use this when the user explicitly wants an explanation, summary, answer, citations, or references from literature in the same turn.",
+        description="Generate a literature-style answer with references from model knowledge. Parameters: `user_query`, optional `disease_name`, `genes`, `top_n`. Use for broad research, investigate, review, explain, summarize, overview, or what-is-known-about requests that do not ask to find/search/check evidence for a specific statement and do not explicitly request PubMed/OpenAlex/Google Scholar/paper search. Does not perform live retrieval; references are best-effort and should not be described as newly searched or verified.",
         return_direct=False,
     )(lambda user_query, disease_name="", genes=None, top_n=20: {"user_query": user_query, "disease_name": disease_name, "genes": list(genes or []), "top_n": int(top_n)}),
     tool(
         "deg_analysis",
         description="""
-        Run differential expression analysis.
+        Run the only supported differential expression workflow: DEE2 SRP datasets analyzed with DESeq2.
 
         Args:
+            srp_ids: List of DEE2/SRA project accessions such as
+                    ["SRP277202"]. Required.
             control_name: Control cohort label such as
-                    "Healthy lung tissue".
+                    "Healthy lung tissue". Required.
             test_name: Test cohort label such as
-                    "COPD lung tissue".
-            srp_ids: List of SRP accessions such as
-                    ["SRP277202"].
+                    "COPD lung tissue". Required.
+            log2fold: Optional absolute log2 fold-change threshold.
+            padj: Optional adjusted p-value/FDR threshold.
             text: Optional text containing control, test, and SRP IDs.
 
         Returns:
             Differentially expressed genes and statistics.
+
+        Cannot run EdgeR, limma/Lemma, voom, NOISeq, custom count matrices,
+        uploaded files, GEO-only IDs without SRP IDs, single-cell analysis,
+        proteomics, custom design formulas, or batch correction.
         """,
         return_direct=False,
     )(
@@ -4366,8 +5201,36 @@ TOOL_SCHEMAS = [
         }
     ),
     tool(
+        "srp_metadata",
+        description="""
+        Retrieve DEE2/SRA metadata for SRP accessions before DEG analysis.
+
+        Args:
+            srp_ids: List of SRP accessions such as ["SRP277202"].
+            text: Optional full user request containing SRP IDs.
+            species: DEE2 species key; defaults to hsapiens.
+            max_dee2_rows: Maximum matching DEE2 rows to keep.
+            max_biosamples: Maximum BioSample records to inspect.
+
+        Returns:
+            DEE2 descriptions and metadata values under treatment, sample_name,
+            and disease so the user can choose exact control/test labels.
+
+        Does not run DEG analysis or choose the contrast automatically.
+        """,
+        return_direct=False,
+    )(
+        lambda srp_ids=None, text=None, species="hsapiens", max_dee2_rows=5000, max_biosamples=80: {
+            "srp_ids": _tool_arg_list(srp_ids),
+            "text": text,
+            "species": species,
+            "max_dee2_rows": max_dee2_rows,
+            "max_biosamples": max_biosamples,
+        }
+    ),
+    tool(
         "rwr_analysis",
-        description="Perform Random Walk with Restart target prioritization from seed genes. This specialist builds a local STRING interaction graph from the supplied or stored genes, then runs RWR and returns ranked candidate genes. Use it for requests about RWR, network propagation, seed-gene prioritization, or identifying targets from up-regulated, down-regulated, DEG-derived, literature-derived, or explicitly provided gene sets.",
+        description="Perform Random Walk with Restart target prioritization over the configured local STRING network. Parameters: `genes`, optional `top_k`/`top_n`, `restart_prob`, STRING file paths/score settings. Inputs must be seed genes from user text or stored DEG/literature/memory results. Cannot use BioGRID, IntAct, tissue-specific or directed causal networks, or live-downloaded networks.",
         return_direct=False,
     )(lambda genes, info_path=SETTINGS.string_info_path, links_path=SETTINGS.string_links_path, required_score=SETTINGS.string_required_score, mode=SETTINGS.string_local_mode: {
         "graph": build_weighted_graph_from_string_files(
@@ -4380,12 +5243,12 @@ TOOL_SCHEMAS = [
     }),
     tool(
         "top_rwr_genes",
-        description="Rank genes using random walk with restart on the current STRING graph.",
+        description="Rank genes using Random Walk with Restart on the current in-memory STRING graph. Parameters: `seed_genes`, optional `top_k`, `restart_prob`. Requires an existing graph; does not build or fetch networks itself.",
         return_direct=False,
     )(lambda seed_genes, top_k=30, restart_prob=0.5: {"rwr_genes": seed_genes, "top_k": top_k, "restart_prob": restart_prob}),
     tool(
         "pathway",
-        description="Primary enrichment tool using Enrichr. Use for pathway or GO-term questions, including stored up-regulated genes with positive log2FoldChange, down-regulated genes with negative log2FoldChange, or all DEG genes together. Use `direction` with values `up`, `down`, or `all`, and use `gene_limit` when the user asks for top N genes before enrichment.",
+        description="Run over-representation enrichment with Enrichr/gget using configured Reactome, KEGG Human, and GO libraries. Parameters: `genes`, `direction` (`up`, `down`, `all`), `gene_limit`, `term_limit`, optional `background_genes`, `text`. Prefer stored DEG genes for DEG follow-ups. Cannot run GSEA, MSigDB/custom GMT, clusterProfiler/ReactomePA, non-human KEGG unless implemented, or unsupported enrichment algorithms.",
         return_direct=False,
     )(lambda genes=None, direction="all", gene_limit=None, term_limit=10, background_genes=None, text=None: {
         "genes": list(genes or []),
@@ -4397,7 +5260,7 @@ TOOL_SCHEMAS = [
     }),
     tool(
         "visualize",
-        description="Create technical visualizations independently. Supported visualization_type values are `network` for STRING/PyVis network rendering, `kegg` for KEGG pathway visualization from genes using gget, and `volcano` for DEG volcano plots. For KEGG follow-ups, you can pass `pathway_term` to reuse overlapping genes from stored Enrichr pathways.",
+        description="Create only supported visualizations. Parameters include `visualization_type` (`network`, `kegg`, or `volcano`), `genes`, `top_n`, `direction`, `output_path`, `kegg_rank`, `species`, `select_top_degree`, `pvalue_threshold`, `log2fc_threshold`, `pathway_term`, `text`. `network` uses STRING/PyVis, `kegg` uses KEGG/gget, and `volcano` uses stored DEG rows. Cannot create heatmaps, PCA, UMAP, boxplots, survival plots, circos plots, dashboards, or arbitrary custom figures.",
         return_direct=False,
     )(
         lambda visualization_type, genes=None, top_n=None, direction=None, output_path=None, kegg_rank=1, species="human", select_top_degree=300, pvalue_threshold=0.05, log2fc_threshold=1.0, pathway_term=None, text=None: {
@@ -4417,21 +5280,20 @@ TOOL_SCHEMAS = [
     ),
     tool(
         "hypothesis",
-        description="Generate scientific experimental validation hypotheses grounded in the full prior user/assistant conversation plus stored memory state. Use this for validation strategies, follow-up experiments, mechanistic hypotheses, or multiple experiment suggestions. When useful, include literature references if similar experiments appear to have already been reported.",
+        description="Generate plausible biomedical hypotheses and conceptual validation experiment ideas from conversation history and stored memory only. Parameters: `hypothesis_goal`, `genes`, `disease_name`, `hypothesis_count`, `text`. Can suggest experiment designs, readouts, controls, expected observations, interpretation, caveats, rationale, and key assumptions. Cannot validate hypotheses against external sources, search literature, cite references, assess novelty, retrieve new evidence, or provide step-by-step wet-lab protocols.",
         return_direct=False,
     )(
-        lambda validation_goal=None, genes=None, disease_name="", hypothesis_count=3, include_references=True, text=None: {
-            "validation_goal": validation_goal or text or "",
+        lambda hypothesis_goal=None, validation_goal=None, genes=None, disease_name="", hypothesis_count=3, text=None: {
+            "hypothesis_goal": hypothesis_goal or validation_goal or text or "",
             "genes": list(genes or []),
             "disease_name": disease_name,
             "hypothesis_count": hypothesis_count,
-            "include_references": include_references,
             "text": text,
         }
     ),
     tool(
         "memory_lookup",
-        description="Answer stored list lookup and matching questions from chat memory. Use for intersections between stored pathway or GO overlap genes and stored up-regulated, down-regulated, or combined DEG genes, or for checking whether a named gene is present in a stored pathway, GO term, or DEG set.",
+        description="Answer lookup/matching questions from current chat memory only. Parameters: `pathway_term`, `direction`, `top_n`, `text`. Use for stored pathway/GO overlap genes, DEG membership, and intersections. Cannot run new analysis, search external data, or infer unstored results.",
         return_direct=False,
     )(
         lambda pathway_term=None, direction=None, top_n=None, text=None: {
@@ -4443,7 +5305,7 @@ TOOL_SCHEMAS = [
     ),
     tool(
         "state_lookup",
-        description="Inspect raw agent state fields directly. Use this as a fallback for memory questions when the user asks what variables are stored, wants the length of a list/set/dict, or wants the literal value of any field in the agent state.",
+        description="Inspect literal agent state fields, values, and counts. Parameters: `fields`, `mode`, `max_items`, `text`. Use when the user asks what is stored or wants raw values/lengths. Cannot interpret biology or create missing results.",
         return_direct=False,
     )(
         lambda fields=None, mode="both", max_items=25, text=None: {
@@ -4455,7 +5317,7 @@ TOOL_SCHEMAS = [
     ),
     tool(
         "memory_slice",
-        description="Select top N and/or bottom N items from any stored list-like state field and make that slice reusable by downstream tools.",
+        description="Select top N and/or bottom N items from a stored list-like state field and make that slice reusable. Parameters: `fields`, `top_n`, `bottom_n`, `text`. Uses existing list order only; cannot statistically rank or sort unless the stored list already encodes that order.",
         return_direct=False,
     )(
         lambda fields=None, top_n=None, bottom_n=None, text=None: {
@@ -4468,7 +5330,7 @@ TOOL_SCHEMAS = [
     tool(
         "primekg_query",
         description="""
-        Query PrimeKG using natural language.
+        Query the configured local PrimeKG/Neo4j graph using natural language.
 
         Use for:
         - disease to gene relationships
@@ -4484,6 +5346,11 @@ TOOL_SCHEMAS = [
 
         Returns:
             Answer plus generated Cypher query and raw graph results.
+
+        Constraints:
+            Read-only PrimeKG relationships only. Cannot answer from live web
+            knowledge, write to Neo4j, change schema, or invent labels and
+            relationship types outside the configured PrimeKG schema.
         """,
         return_direct=False,
     )(
@@ -4491,12 +5358,12 @@ TOOL_SCHEMAS = [
     ),
     tool(
         "opentargets_association",
-        description="Query OpenTargets for gene associations. Use for single-gene disease lookup, gene-versus-disease checks, checking stored DEG/up-regulated/down-regulated genes against a disease, or retrieving drugs associated with a gene. Genes are standardized to Ensembl IDs with MyGene before querying OpenTargets.",
+        description="Query OpenTargets for gene-disease associations or gene-linked drugs. Parameters: `gene`, `genes`, `disease`/`disease_name`. Genes are standardized to Ensembl IDs with MyGene. Cannot run pathway enrichment, DEG analysis, PubChem chemistry lookup, PrimeKG paths, or full clinical trial interpretation.",
         return_direct=False,
     )(lambda gene=None, genes=None, disease=None, disease_name=None: {"gene": gene or "", "genes": list(genes or []), "disease": disease or disease_name or ""}),
     tool(
         "l1000cds2_query",
-        description="Query L1000CDS2 for small molecules using up-regulated and down-regulated genes. Use this when the user asks for LINCS/L1000/L1000CDS2 drug matches or reversal compounds, especially when stored DEG memory can provide the up/down gene lists and the query mentions one or more cell lines.",
+        description="Query L1000CDS2 for small molecules using separate up-regulated and down-regulated gene lists. Parameters: `up_genes`, `down_genes`, optional `cell_lines`, `aggravate` for mimic mode, `combination`, `share`, `db_version`, `gene_limit`, `result_limit`, `text`. Default is reversal mode. Cannot query CMap APIs outside L1000CDS2, infer mechanisms without returned signatures, or run from a single undirected gene list unless a split is explicit or stored DEG directions exist.",
         return_direct=False,
     )(
         lambda up_genes=None, down_genes=None, cell_lines=None, aggravate=None, combination=False, share=False, db_version="latest", gene_limit=500, result_limit=20, text=None: {
@@ -4514,7 +5381,7 @@ TOOL_SCHEMAS = [
     ),
     tool(
         "pubchem_drug_lookup",
-        description="Query PubChem for a drug or compound by name, `pert_desc`, or `pert_id` such as a BRD identifier, retrieve the compound record and annotations, and use that evidence to support downstream identification of genes, pathways, and diseases mentioned in the PubChem content.",
+        description="Query PubChem for a drug/compound by name, `pert_desc`, or BRD-like `pert_id`. Parameters: `drug_name`, `pert_id`, `text`. Retrieves compound records, properties, synonyms, descriptions, and annotations; genes/pathways/diseases may be mentioned only when supported by PubChem text. Cannot run L1000 signatures, target validation, clinical efficacy analysis, or non-compound biomedical graph queries.",
         return_direct=False,
     )(
         lambda drug_name=None, pert_id=None, text=None: {
@@ -4524,8 +5391,76 @@ TOOL_SCHEMAS = [
         }
     ),
     tool(
+        "druggability",
+        description="""
+        Run structure-backed druggability and binding-pocket analysis for one gene.
+
+        Args:
+            gene: Gene symbol such as EGFR, TP53, or BRCA1. Required.
+            organism_id: NCBI taxonomy id for UniProt resolution; defaults to
+                9606 for human.
+            chain: Optional protein chain to pass to DoGSite; empty means all.
+            ligand: Optional ligand identifier for DoGSite; empty means none.
+            top_n: Number of top pockets to return and download files for.
+            output_dir: Optional local output directory.
+            dogsite_timeout_seconds: Maximum time to wait for DoGSite.
+            poll_interval_seconds: Seconds between DoGSite polling requests.
+            pdbfixer_ph: pH used when adding hydrogens with PDBFixer.
+
+        Workflow:
+            Resolve gene to UniProt, download the best available RCSB PDB,
+            otherwise download AlphaFold coordinates, sanitize/add hydrogens
+            with PDBFixer when available, upload to ProteinsPlus, submit
+            DoGSiteScorer, wait for the result table, and download top pocket
+            residue/map files.
+        """,
+        return_direct=False,
+    )(
+        lambda gene, organism_id=9606, chain="", ligand="", top_n=3, output_dir=None, dogsite_timeout_seconds=900, poll_interval_seconds=15, pdbfixer_ph=7.0: {
+            "gene": gene,
+            "organism_id": organism_id,
+            "chain": chain,
+            "ligand": ligand,
+            "top_n": top_n,
+            "output_dir": output_dir,
+            "dogsite_timeout_seconds": dogsite_timeout_seconds,
+            "poll_interval_seconds": poll_interval_seconds,
+            "pdbfixer_ph": pdbfixer_ph,
+        }
+    ),
+    tool(
+        "pdb_visualizer",
+        description="""
+        Fetch and visualize one protein structure without running pocket scoring.
+
+        Args:
+            gene: Gene symbol such as CRISPLD2, EGFR, or TP53.
+            protein: Optional protein label when the user names a protein.
+            uniprot_id: Optional UniProt accession such as Q9H0B8.
+            pdb_id: Optional direct RCSB PDB ID such as 1A2B.
+            organism_id: NCBI taxonomy id for UniProt resolution; defaults to
+                9606 for human.
+            output_dir: Optional local output directory.
+
+        Workflow:
+            Resolve gene/protein to UniProt when needed, prefer an RCSB PDB,
+            otherwise download the latest AlphaFold PDB through the AlphaFold
+            API, save the PDB, and generate an interactive 3Dmol HTML viewer.
+        """,
+        return_direct=False,
+    )(
+        lambda gene="", protein="", uniprot_id="", pdb_id="", organism_id=9606, output_dir=None: {
+            "gene": gene,
+            "protein": protein,
+            "uniprot_id": uniprot_id,
+            "pdb_id": pdb_id,
+            "organism_id": organism_id,
+            "output_dir": output_dir,
+        }
+    ),
+    tool(
         "synthesize_technical_response",
-        description="Write the final technical summary from the available analysis state.",
+        description="Write the final user-facing technical summary from available structured analysis state. Use after the requested specialist work is complete. It cannot create new evidence, run tools, or fill missing fields by guessing.",
         return_direct=False,
     )(lambda user_query=None, analysis_arm="disease", seed_genes=None, srp_ids=None, disease_name="", deg_analysis=None, rwr_genes=None, graph=None, enrichr=None: synthesize_technical_response(
         user_query=user_query,
@@ -4543,6 +5478,7 @@ TOOL_SCHEMAS = [
 
 TOOL_EXECUTORS: dict[str, Callable[[AgentState, dict[str, Any]], dict[str, Any]]] = {
     "deg_analysis": lambda state, args: {},
+    "srp_metadata": lambda state, args: {},
     "pathway": lambda state, args: {},
     "rwr_analysis": lambda state, args: {},
     "literature": lambda state, args: {},
@@ -4557,5 +5493,7 @@ TOOL_EXECUTORS: dict[str, Callable[[AgentState, dict[str, Any]], dict[str, Any]]
     "opentargets_association": lambda state, args: {},
     "l1000cds2_query": lambda state, args: {},
     "pubchem_drug_lookup": lambda state, args: {},
+    "druggability": lambda state, args: {},
+    "pdb_visualizer": lambda state, args: {},
     "synthesize_technical_response": lambda state, args: {},
 }

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
+import networkx as nx
 
 from gea_agent.agent.graph import build_app
 
@@ -12,6 +14,7 @@ from backend.security import hash_password, hash_token, new_token, verify_passwo
 
 
 _AGENT_APP = None
+TECHNICAL_ASSET_DIR = Path("backend/data/technical_assets")
 
 
 def _normalize_agent_type(agent_type: str | None) -> str:
@@ -101,6 +104,7 @@ def create_chat(user_id: int, title: str | None = None, agent_type: str | None =
             user_id, title, agent_type, analysis_arm, srp_ids_json, memory_deg_genes_json,
             memory_upregulated_genes_json, memory_downregulated_genes_json,
             memory_deg_analysis_json, memory_deg_gene_records_json,
+            memory_srp_metadata_result_json,
             memory_control_name, memory_test_name, memory_enrichr_json,
             memory_rwr_seed_genes_json, memory_rwr_genes_json,
             memory_disease_name, memory_openalex_genes_json,
@@ -111,7 +115,7 @@ def create_chat(user_id: int, title: str | None = None, agent_type: str | None =
             created_at, updated_at
         )
         VALUES (
-            ?, ?, ?, ?, '[]', '[]', '[]', '[]', '{}', '[]', '', '', '{}',
+            ?, ?, ?, ?, '[]', '[]', '[]', '[]', '{}', '[]', '{}', '', '', '{}',
             '[]', '[]', '', '[]', '[]', '{}', '{}', '{}', '{}', '{}', ?, ?
         )
         """,
@@ -142,16 +146,28 @@ def list_messages(user_id: int, chat_id: int) -> list[dict[str, Any]]:
     chat = get_chat(user_id, chat_id)
     if not chat:
         raise ValueError("Chat not found")
-    return fetch_all(
-        "SELECT role, content, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
+    rows = fetch_all(
+        "SELECT role, content, meta_json, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
         (chat_id,),
     )
+    messages: list[dict[str, Any]] = []
+    for row in rows:
+        message = {
+            "role": row.get("role"),
+            "content": row.get("content"),
+            "created_at": row.get("created_at"),
+        }
+        meta = json_loads(row.get("meta_json"), {})
+        if isinstance(meta, dict) and meta:
+            message["meta"] = meta
+        messages.append(message)
+    return messages
 
 
-def append_message(chat_id: int, role: str, content: str) -> None:
+def append_message(chat_id: int, role: str, content: str, meta: dict[str, Any] | None = None) -> None:
     execute(
-        "INSERT INTO messages (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-        (chat_id, role, content, now_iso()),
+        "INSERT INTO messages (chat_id, role, content, meta_json, created_at) VALUES (?, ?, ?, ?, ?)",
+        (chat_id, role, content, json_dumps(meta if isinstance(meta, dict) else {}), now_iso()),
     )
     execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now_iso(), chat_id))
 
@@ -206,6 +222,12 @@ def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> N
         result_meta.get("memory_deg_gene_records"),
         json_loads(current.get("memory_deg_gene_records_json"), []),
         default=[],
+    )
+    memory_srp_metadata_result = _first_non_empty(
+        result_meta.get("srp_metadata_result"),
+        result_meta.get("memory_srp_metadata_result"),
+        json_loads(current.get("memory_srp_metadata_result_json"), {}),
+        default={},
     )
     memory_control_name = _first_non_empty(
         result_meta.get("control_name"),
@@ -289,6 +311,7 @@ def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> N
             memory_downregulated_genes_json = ?,
             memory_deg_analysis_json = ?,
             memory_deg_gene_records_json = ?,
+            memory_srp_metadata_result_json = ?,
             memory_control_name = ?,
             memory_test_name = ?,
             memory_enrichr_json = ?,
@@ -313,6 +336,7 @@ def update_chat_memory(chat_id: int, *, result_meta: dict[str, Any] | None) -> N
             json_dumps(memory_downregulated_genes if isinstance(memory_downregulated_genes, list) else []),
             json_dumps(memory_deg_analysis if isinstance(memory_deg_analysis, dict) else {}),
             json_dumps(memory_deg_gene_records if isinstance(memory_deg_gene_records, list) else []),
+            json_dumps(memory_srp_metadata_result if isinstance(memory_srp_metadata_result, dict) else {}),
             memory_control_name if isinstance(memory_control_name, str) else "",
             memory_test_name if isinstance(memory_test_name, str) else "",
             json_dumps(memory_enrichr if isinstance(memory_enrichr, dict) else {}),
@@ -378,6 +402,21 @@ def build_memory_summary(chat: dict[str, Any], messages: list[dict[str, Any]]) -
         field = chat["memory_slice_result"].get("field")
         if isinstance(selected, list):
             parts.append(f"Stored memory slice{f' from {field}' if field else ''}: {len(selected)} selected items.")
+    druggability_result = (chat.get("last_meta") or {}).get("druggability_result")
+    if isinstance(druggability_result, dict) and druggability_result:
+        pockets = druggability_result.get("top_pockets")
+        gene = druggability_result.get("gene")
+        if gene:
+            parts.append(
+                f"Stored druggability result for {gene}"
+                + (f": {len(pockets)} pockets." if isinstance(pockets, list) else ".")
+            )
+    pdb_visualization_result = (chat.get("last_meta") or {}).get("pdb_visualization_result")
+    if isinstance(pdb_visualization_result, dict) and pdb_visualization_result:
+        gene = pdb_visualization_result.get("gene")
+        uniprot = pdb_visualization_result.get("uniprot_id")
+        if gene or uniprot:
+            parts.append(f"Stored PDB visualization for {gene or uniprot}.")
 
     recent = messages[-4:]
     if recent:
@@ -426,6 +465,7 @@ def _enrich_chat(chat: dict[str, Any]) -> dict[str, Any]:
     enriched["memory_downregulated_genes"] = json_loads(enriched.get("memory_downregulated_genes_json"), [])
     enriched["memory_deg_analysis"] = json_loads(enriched.get("memory_deg_analysis_json"), {})
     enriched["memory_deg_gene_records"] = json_loads(enriched.get("memory_deg_gene_records_json"), [])
+    enriched["memory_srp_metadata_result"] = json_loads(enriched.get("memory_srp_metadata_result_json"), {})
     enriched["memory_control_name"] = enriched.get("memory_control_name", "")
     enriched["memory_test_name"] = enriched.get("memory_test_name", "")
     enriched["memory_enrichr"] = json_loads(enriched.get("memory_enrichr_json"), {})
@@ -446,6 +486,7 @@ def _enrich_chat(chat: dict[str, Any]) -> dict[str, Any]:
             "memory_downregulated_genes": ("downregulated_genes", "memory_downregulated_genes"),
             "memory_deg_analysis": ("deg_analysis", "memory_deg_analysis"),
             "memory_deg_gene_records": ("deg_gene_records", "memory_deg_gene_records"),
+            "memory_srp_metadata_result": ("srp_metadata_result", "memory_srp_metadata_result"),
             "memory_enrichr": ("enrichr", "memory_enrichr"),
             "memory_rwr_seed_genes": ("rwr_seed_genes", "memory_rwr_seed_genes"),
             "memory_rwr_genes": ("rwr_genes", "memory_rwr_genes"),
@@ -456,6 +497,8 @@ def _enrich_chat(chat: dict[str, Any]) -> dict[str, Any]:
             "memory_pubchem_result": ("pubchem_result", "memory_pubchem_result"),
             "memory_hypothesis_result": ("hypothesis_result", "memory_hypothesis_result"),
             "memory_slice_result": ("memory_slice_result",),
+            "memory_druggability_result": ("druggability_result", "memory_druggability_result"),
+            "memory_pdb_visualization_result": ("pdb_visualization_result", "memory_pdb_visualization_result"),
         }
         for target_key, meta_keys in fallback_pairs.items():
             if enriched.get(target_key) not in (None, "", [], {}):
@@ -510,6 +553,7 @@ def _invoke_agent_for_chat(chat: dict[str, Any], content: str, memory_summary: s
             "memory_downregulated_genes": _memory_value_from_chat(chat, "memory_downregulated_genes", []),
             "memory_deg_analysis": _memory_value_from_chat(chat, "memory_deg_analysis", {}),
             "memory_deg_gene_records": _memory_value_from_chat(chat, "memory_deg_gene_records", []),
+            "memory_srp_metadata_result": _memory_value_from_chat(chat, "memory_srp_metadata_result", {}),
             "memory_control_name": _memory_value_from_chat(chat, "memory_control_name", ""),
             "memory_test_name": _memory_value_from_chat(chat, "memory_test_name", ""),
             "memory_enrichr": _memory_value_from_chat(chat, "memory_enrichr", {}),
@@ -521,9 +565,105 @@ def _invoke_agent_for_chat(chat: dict[str, Any], content: str, memory_summary: s
             "memory_l1000cds2_result": _memory_value_from_chat(chat, "memory_l1000cds2_result", {}),
             "memory_pubchem_result": _memory_value_from_chat(chat, "memory_pubchem_result", {}),
             "memory_hypothesis_result": _memory_value_from_chat(chat, "memory_hypothesis_result", {}),
+            "memory_druggability_result": _memory_value_from_chat(chat, "memory_druggability_result", {}),
+            "memory_pdb_visualization_result": _memory_value_from_chat(chat, "memory_pdb_visualization_result", {}),
             "memory_slice_result": _memory_value_from_chat(chat, "memory_slice_result", {}),
         }
     )
+
+
+def _attach_graphml_download(chat_id: int, meta: dict[str, Any], graph: Any) -> dict[str, Any]:
+    if not isinstance(graph, nx.Graph) or graph.number_of_nodes() == 0:
+        return meta
+
+    TECHNICAL_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+    graphml_path = TECHNICAL_ASSET_DIR / f"chat_{chat_id}_{timestamp}_string_network.graphml"
+    nx.write_graphml(graph, graphml_path)
+    enriched = dict(meta)
+    enriched["graphml_path"] = str(graphml_path)
+    return enriched
+
+
+def _message_display_meta(meta: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(meta, dict):
+        return {}
+
+    analysis_arm = str(meta.get("analysis_arm") or "").strip().lower()
+    display: dict[str, Any] = {
+        "analysis_arm": analysis_arm,
+        "route_rationale": meta.get("route_rationale", ""),
+    }
+
+    common_visual_keys = ("pyvis_html_path", "kegg_pathway_path", "volcano_plot_path", "graphml_path", "network")
+    allowed_by_arm: dict[str, tuple[str, ...]] = {
+        "srp": (
+            "deg_analysis",
+            "deg_gene_records",
+            "deg_genes",
+            "upregulated_genes",
+            "downregulated_genes",
+            "volcano_plot_path",
+        ),
+        "srp_metadata": ("srp_metadata_result",),
+        "pathway": ("enrichr",),
+        "memory_rwr": ("rwr_genes", "network", "graphml_path"),
+        "disease": (
+            "disease_name",
+            "openalex_papers",
+            "ranked_openalex_papers",
+            "literature_key_points",
+            "literature_references",
+            "literature_summary",
+        ),
+        "research_literature": (
+            "disease_name",
+            "openalex_papers",
+            "ranked_openalex_papers",
+            "literature_key_points",
+            "literature_references",
+            "literature_summary",
+        ),
+        "literature": (
+            "disease_name",
+            "openalex_papers",
+            "ranked_openalex_papers",
+            "literature_key_points",
+            "literature_references",
+            "literature_summary",
+        ),
+        "visualize": common_visual_keys,
+        "primekg": ("primekg_result",),
+        "opentargets": ("opentargets_result",),
+        "l1000cds2": ("l1000cds2_result",),
+        "pubchem": ("pubchem_result",),
+        "hypothesis": ("hypothesis_result",),
+        "druggability": ("druggability_result",),
+        "pdb_visualizer": ("pdb_visualization_result",),
+    }
+
+    for key in allowed_by_arm.get(analysis_arm, ()):
+        value = meta.get(key)
+        if value not in (None, "", [], {}):
+            display[key] = value
+
+    tool_history = meta.get("tool_history")
+    tool_names = {
+        str(entry.get("tool") or "").strip()
+        for entry in tool_history
+        if isinstance(entry, dict)
+    } if isinstance(tool_history, list) else set()
+    if tool_names.intersection({"top_rwr_genes", "rwr_analysis"}) and meta.get("rwr_genes"):
+        display["rwr_genes"] = meta.get("rwr_genes")
+        display["rwr_result_is_current"] = True
+        network = meta.get("network")
+        if network not in (None, "", [], {}):
+            display["network"] = network
+        graphml_path = meta.get("graphml_path")
+        if graphml_path:
+            display["graphml_path"] = graphml_path
+
+    return display if len(display) > 2 else {}
 
 
 def handle_chat_message(user_id: int, chat_id: int, content: str) -> dict[str, Any]:
@@ -537,12 +677,14 @@ def handle_chat_message(user_id: int, chat_id: int, content: str) -> dict[str, A
     result = _invoke_agent_for_chat(chat, content, memory_summary, messages)
 
     answer = result.get("answer", "")
-    append_message(chat_id, "assistant", answer)
-    update_chat_memory(chat_id, result_meta=result.get("meta"))
+    result_meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+    result_meta = _attach_graphml_download(chat_id, result_meta, result.get("graph"))
+    append_message(chat_id, "assistant", answer, _message_display_meta(result_meta))
+    update_chat_memory(chat_id, result_meta=result_meta)
 
     return {
         "answer": answer,
-        "meta": result.get("meta", {}),
+        "meta": result_meta,
         "chat": get_chat(user_id, chat_id),
         "messages": list_messages(user_id, chat_id),
     }

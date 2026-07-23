@@ -38,10 +38,9 @@ function formatNumber(value) {
   const num = Number(value)
   if (Number.isNaN(num)) return String(value)
   if (num === 0) return '0'
-  const factor = 1000
-  const truncated = Math.trunc(num * factor) / factor
-  if (Math.abs(truncated) < 0.001 || Math.abs(truncated) >= 1000) return truncated.toExponential(3)
-  return truncated.toFixed(3)
+  const abs = Math.abs(num)
+  if (abs < 0.001 || abs >= 1000) return num.toExponential(3)
+  return num.toFixed(3)
 }
 
 function formatValue(value) {
@@ -57,6 +56,10 @@ function formatValue(value) {
     }
   }
   return String(value)
+}
+
+function formatGeneList(value) {
+  return Array.isArray(value) && value.length ? value.map((gene) => String(gene)).join(', ') : '-'
 }
 
 function csvCell(value) {
@@ -100,43 +103,6 @@ function formatTime(value) {
 function formatArm(value) {
   const key = String(value || 'general').trim().toLowerCase()
   return analysisArmLabels[key] || key.replaceAll('_', ' ')
-}
-
-function formatChatMode(chat, technicalMeta) {
-  const agentType = String(chat?.agent_type || technicalMeta?.agent_type || '').trim().toLowerCase()
-  if (agentType === 'literature') return 'Literature'
-  return formatArm(chat?.analysis_arm || technicalMeta?.analysis_arm || 'general')
-}
-
-function getRunMetrics(meta) {
-  if (!meta || typeof meta !== 'object') return []
-
-  const metrics = []
-  const degRows = Array.isArray(meta.deg_gene_records) ? meta.deg_gene_records.length : 0
-  const pathwayLibraries = meta.enrichr && typeof meta.enrichr === 'object' && meta.enrichr.libraries && typeof meta.enrichr.libraries === 'object'
-    ? Object.keys(meta.enrichr.libraries).length
-    : 0
-  const rwrHits = Array.isArray(meta.rwr_genes) ? meta.rwr_genes.length : 0
-  const graphNodes = meta.network && typeof meta.network === 'object' ? Number(meta.network.nodes || 0) : 0
-  const graphEdges = meta.network && typeof meta.network === 'object' ? Number(meta.network.edges || 0) : 0
-  const literatureHits = Array.isArray(meta.ranked_openalex_papers)
-    ? meta.ranked_openalex_papers.length
-    : Array.isArray(meta.openalex_papers)
-      ? meta.openalex_papers.length
-      : 0
-  const l1000Hits = meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' && Array.isArray(meta.l1000cds2_result.top_drugs)
-    ? meta.l1000cds2_result.top_drugs.length
-    : 0
-
-  if (degRows) metrics.push({ label: 'DEG rows', value: degRows })
-  if (pathwayLibraries) metrics.push({ label: 'Libraries', value: pathwayLibraries })
-  if (rwrHits) metrics.push({ label: 'RWR hits', value: rwrHits })
-  if (graphNodes) metrics.push({ label: 'Nodes', value: graphNodes })
-  if (graphEdges) metrics.push({ label: 'Edges', value: graphEdges })
-  if (literatureHits) metrics.push({ label: 'Papers', value: literatureHits })
-  if (l1000Hits) metrics.push({ label: 'L1000 hits', value: l1000Hits })
-
-  return metrics
 }
 
 function renderKvList(data, keyPrefix) {
@@ -223,6 +189,24 @@ function parseMarkdownBlocks(content) {
   let codeLines = []
   let inCode = false
 
+  function isTableSeparator(line) {
+    const cells = splitTableRow(line)
+    return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))
+  }
+
+  function isTableRow(line) {
+    return line.includes('|') && splitTableRow(line).length > 1
+  }
+
+  function splitTableRow(line) {
+    return String(line || '')
+      .trim()
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split('|')
+      .map((cell) => cell.trim())
+  }
+
   function flushParagraph() {
     if (!paragraphLines.length) return
     blocks.push({ type: 'paragraph', text: paragraphLines.join(' ').trim() })
@@ -248,7 +232,8 @@ function parseMarkdownBlocks(content) {
     codeLines = []
   }
 
-  for (const rawLine of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex]
     const line = rawLine ?? ''
     const trimmed = line.trim()
 
@@ -274,6 +259,23 @@ function parseMarkdownBlocks(content) {
       flushParagraph()
       flushList()
       flushQuote()
+      continue
+    }
+
+    const nextLine = lines[lineIndex + 1]?.trim() || ''
+    if (isTableRow(trimmed) && isTableSeparator(nextLine)) {
+      flushParagraph()
+      flushList()
+      flushQuote()
+      const headers = splitTableRow(trimmed)
+      const rows = []
+      lineIndex += 1
+      while (lineIndex + 1 < lines.length && isTableRow(lines[lineIndex + 1])) {
+        lineIndex += 1
+        const row = splitTableRow(lines[lineIndex])
+        rows.push(headers.map((_, columnIndex) => row[columnIndex] || ''))
+      }
+      blocks.push({ type: 'table', headers, rows })
       continue
     }
 
@@ -362,6 +364,34 @@ function MarkdownContent({ content }) {
         if (block.type === 'quote') {
           return <blockquote key={`block-${index}`}>{renderInlineMarkdown(block.text, `quote-${index}`)}</blockquote>
         }
+        if (block.type === 'table') {
+          return (
+            <div className="markdown-table-wrap" key={`block-${index}`}>
+              <table className="markdown-table">
+                <thead>
+                  <tr>
+                    {block.headers.map((header, headerIndex) => (
+                      <th key={`table-head-${index}-${headerIndex}`}>
+                        {renderInlineMarkdown(header, `table-head-${index}-${headerIndex}`)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={`table-row-${index}-${rowIndex}`}>
+                      {row.map((cell, cellIndex) => (
+                        <td key={`table-cell-${index}-${rowIndex}-${cellIndex}`}>
+                          {renderInlineMarkdown(cell, `table-cell-${index}-${rowIndex}-${cellIndex}`)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
         if (block.type === 'code') {
           return (
             <pre className="markdown-code-block" key={`block-${index}`}>
@@ -384,6 +414,7 @@ function MessageBubble({ message }) {
       </div>
       <div className="message-content">
         <MarkdownContent content={message.content} />
+        {message.role === 'assistant' && message.meta ? <TechnicalOutput meta={message.meta} /> : null}
       </div>
     </article>
   )
@@ -402,9 +433,9 @@ function LoadingState({ label = 'Loading workspace' }) {
   )
 }
 
-function SectionCard({ title, subtitle, children }) {
+function TechnicalSection({ title, subtitle, children }) {
   return (
-    <section className="technical-card">
+    <section className="technical-section">
       <div className="section-heading">
         <h3>{title}</h3>
         {subtitle ? <p>{subtitle}</p> : null}
@@ -440,65 +471,74 @@ function ArtifactPreview({ label, path, mode }) {
   )
 }
 
-function TechnicalPanel({ meta }) {
+function TechnicalOutput({ meta }) {
   if (!meta || typeof meta !== 'object') {
-    return (
-      <aside className="insights-panel">
-        <section className="technical-panel">
-          <div className="technical-hero placeholder">
-            <div className="eyebrow">Technical results</div>
-            <h3>No technical output yet</h3>
-            <p>Run a DEG, enrichment, RWR, literature, or drug lookup query and the structured outputs will land here.</p>
-          </div>
-        </section>
-      </aside>
-    )
+    return null
   }
 
-  const degUpRows = Array.isArray(meta.deg_analysis?.upregulated_rows)
+  const analysisArm = String(meta.analysis_arm || '').trim().toLowerCase()
+  const isDegTurn = analysisArm === 'srp'
+  const isPathwayTurn = analysisArm === 'pathway'
+  const isRwrTurn = analysisArm === 'memory_rwr' || meta.rwr_result_is_current === true
+  const isLiteratureTurn = ['disease', 'research_literature', 'literature'].includes(analysisArm)
+  const isVisualTurn = analysisArm === 'visualize'
+  const isNetworkTurn = isRwrTurn || isVisualTurn
+  const isHypothesisTurn = analysisArm === 'hypothesis'
+
+  const degUpRows = isDegTurn && Array.isArray(meta.deg_analysis?.upregulated_rows)
     ? meta.deg_analysis.upregulated_rows.slice(0, 10)
-    : Array.isArray(meta.deg_gene_records)
+    : isDegTurn && Array.isArray(meta.deg_gene_records)
       ? meta.deg_gene_records
         .filter((row) => Number(row?.log2FoldChange) > 0)
         .sort((a, b) => Number(b?.log2FoldChange || 0) - Number(a?.log2FoldChange || 0))
         .slice(0, 10)
       : []
-  const degDownRows = Array.isArray(meta.deg_analysis?.downregulated_rows)
+  const degDownRows = isDegTurn && Array.isArray(meta.deg_analysis?.downregulated_rows)
     ? meta.deg_analysis.downregulated_rows.slice(0, 10)
-    : Array.isArray(meta.deg_gene_records)
+    : isDegTurn && Array.isArray(meta.deg_gene_records)
       ? meta.deg_gene_records
         .filter((row) => Number(row?.log2FoldChange) < 0)
         .sort((a, b) => Number(a?.log2FoldChange || 0) - Number(b?.log2FoldChange || 0))
         .slice(0, 10)
       : []
-  const degDownloadRows = Array.isArray(meta.deg_gene_records)
+  const degDownloadRows = isDegTurn && Array.isArray(meta.deg_gene_records)
     ? meta.deg_gene_records
-    : Array.isArray(meta.deg_analysis?.rows)
+    : isDegTurn && Array.isArray(meta.deg_analysis?.rows)
       ? meta.deg_analysis.rows
       : []
-  const enrichrLibs = meta.enrichr && typeof meta.enrichr === 'object' && meta.enrichr.libraries && typeof meta.enrichr.libraries === 'object'
+  const enrichrLibs = isPathwayTurn && meta.enrichr && typeof meta.enrichr === 'object' && meta.enrichr.libraries && typeof meta.enrichr.libraries === 'object'
     ? meta.enrichr.libraries
     : {}
-  const rwrRows = Array.isArray(meta.rwr_genes) ? meta.rwr_genes.slice(0, 10) : []
-  const openTargets = meta.opentargets_result && typeof meta.opentargets_result === 'object' ? meta.opentargets_result : null
-  const primeKg = meta.primekg_result && typeof meta.primekg_result === 'object' ? meta.primekg_result : null
-  const l1000 = meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' ? meta.l1000cds2_result : null
-  const pubchem = meta.pubchem_result && typeof meta.pubchem_result === 'object' ? meta.pubchem_result : null
-  const hypothesis = meta.hypothesis_result && typeof meta.hypothesis_result === 'object' ? meta.hypothesis_result : null
-  const memoryLookup = meta.memory_lookup_result && typeof meta.memory_lookup_result === 'object' ? meta.memory_lookup_result : null
-  const memorySlice = meta.memory_slice_result && typeof meta.memory_slice_result === 'object' ? meta.memory_slice_result : null
-  const toolHistory = Array.isArray(meta.tool_history) ? meta.tool_history : []
-  const rankedPapers = Array.isArray(meta.ranked_openalex_papers) ? meta.ranked_openalex_papers.slice(0, 5) : []
-  const scannedPapers = Array.isArray(meta.openalex_papers) ? meta.openalex_papers.slice(0, 5) : []
-  const literaturePoints = Array.isArray(meta.literature_key_points) ? meta.literature_key_points.slice(0, 5) : []
-  const literatureReferences = Array.isArray(meta.literature_references) ? meta.literature_references.slice(0, 8) : []
-  const network = meta.network && typeof meta.network === 'object' ? meta.network : null
+  const rwrRows = isRwrTurn && Array.isArray(meta.rwr_genes) ? meta.rwr_genes.slice(0, 10) : []
+  const openTargets = analysisArm === 'opentargets' && meta.opentargets_result && typeof meta.opentargets_result === 'object' ? meta.opentargets_result : null
+  const primeKg = analysisArm === 'primekg' && meta.primekg_result && typeof meta.primekg_result === 'object' ? meta.primekg_result : null
+  const l1000 = analysisArm === 'l1000cds2' && meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' ? meta.l1000cds2_result : null
+  const pubchem = analysisArm === 'pubchem' && meta.pubchem_result && typeof meta.pubchem_result === 'object' ? meta.pubchem_result : null
+  const hypothesis = isHypothesisTurn && meta.hypothesis_result && typeof meta.hypothesis_result === 'object' ? meta.hypothesis_result : null
+  const druggability = analysisArm === 'druggability' && meta.druggability_result && typeof meta.druggability_result === 'object' ? meta.druggability_result : null
+  const pdbVisualization = analysisArm === 'pdb_visualizer' && meta.pdb_visualization_result && typeof meta.pdb_visualization_result === 'object' ? meta.pdb_visualization_result : null
+  const rankedPapers = isLiteratureTurn && Array.isArray(meta.ranked_openalex_papers) ? meta.ranked_openalex_papers.slice(0, 5) : []
+  const scannedPapers = isLiteratureTurn && Array.isArray(meta.openalex_papers) ? meta.openalex_papers.slice(0, 5) : []
+  const literaturePoints = isLiteratureTurn && Array.isArray(meta.literature_key_points) ? meta.literature_key_points.slice(0, 5) : []
+  const literatureReferences = isLiteratureTurn && Array.isArray(meta.literature_references) ? meta.literature_references.slice(0, 8) : []
+  const network = isNetworkTurn && meta.network && typeof meta.network === 'object' ? meta.network : null
   const topDegree = Array.isArray(network?.top_degree) ? network.top_degree.slice(0, 10) : []
-  const pyvisHtmlPath = typeof meta.pyvis_html_path === 'string' ? meta.pyvis_html_path : ''
-  const keggPath = typeof meta.kegg_pathway_path === 'string' ? meta.kegg_pathway_path : ''
-  const volcanoPath = typeof meta.volcano_plot_path === 'string' ? meta.volcano_plot_path : ''
+  const pyvisHtmlPath = isVisualTurn && typeof meta.pyvis_html_path === 'string' ? meta.pyvis_html_path : ''
+  const keggPath = isVisualTurn && typeof meta.kegg_pathway_path === 'string' ? meta.kegg_pathway_path : ''
+  const volcanoPath = (isVisualTurn || isDegTurn) && typeof meta.volcano_plot_path === 'string' ? meta.volcano_plot_path : ''
+  const graphmlPath = isNetworkTurn && typeof meta.graphml_path === 'string' ? meta.graphml_path : ''
+  const pdbViewerPath = typeof druggability?.pdb_viewer_html_path === 'string' ? druggability.pdb_viewer_html_path : ''
+  const fixedPdbPath = typeof druggability?.fixed_pdb_path === 'string' ? druggability.fixed_pdb_path : ''
+  const rawPdbPath = typeof druggability?.raw_pdb_path === 'string' ? druggability.raw_pdb_path : ''
+  const dogsiteTablePath = typeof druggability?.result_table_path === 'string' ? druggability.result_table_path : ''
+  const proteinViewerPath = typeof pdbVisualization?.pdb_viewer_html_path === 'string' ? pdbVisualization.pdb_viewer_html_path : ''
+  const proteinPdbPath = typeof pdbVisualization?.pdb_path === 'string'
+    ? pdbVisualization.pdb_path
+    : typeof pdbVisualization?.raw_pdb_path === 'string'
+      ? pdbVisualization.raw_pdb_path
+      : ''
+  const volcanoMode = volcanoPath.toLowerCase().endsWith('.html') || volcanoPath.toLowerCase().endsWith('.htm') ? 'html' : 'image'
   const requestedCellLines = Array.isArray(l1000?.requested_cell_lines) ? l1000.requested_cell_lines : []
-  const runMetrics = getRunMetrics(meta)
   const pathwayDownloadRows = Object.entries(enrichrLibs).flatMap(([library, terms]) => (
     Array.isArray(terms)
       ? terms.map((term, index) => ({ ...term, library, rank: index + 1 }))
@@ -535,31 +575,60 @@ function TechnicalPanel({ meta }) {
       { label: 'cell_lines', value: (row) => row.cell_lines },
     ])
     : ''
+  const hasDownloads = Boolean(degCsvHref || volcanoPath || l1000CsvHref || pathwayCsvHref || graphmlPath || pdbViewerPath || fixedPdbPath || rawPdbPath || dogsiteTablePath || proteinViewerPath || proteinPdbPath)
+  const hasVisuals = Boolean(pyvisHtmlPath || keggPath || volcanoPath || pdbViewerPath || proteinViewerPath)
+  const hasNetwork = Boolean(network && (network.nodes || network.edges || topDegree.length > 0))
+  const hasLiterature = Boolean(
+    rankedPapers.length > 0
+    || scannedPapers.length > 0
+    || literaturePoints.length > 0
+    || literatureReferences.length > 0
+    || meta.literature_summary,
+  )
+  const hasDeg = degUpRows.length > 0 || degDownRows.length > 0
+  const hasPathway = Object.values(enrichrLibs).some((terms) => Array.isArray(terms) && terms.length > 0)
+  const hasRwr = rwrRows.length > 0
+  const hasL1000 = Boolean(l1000 && (Array.isArray(l1000.top_drugs) || l1000.message))
+  const hasOpenTargets = Boolean(openTargets)
+  const hasPrimeKg = Boolean(primeKg && (primeKg.answer || primeKg.cypher || (Array.isArray(primeKg.rows) && primeKg.rows.length > 0)))
+  const hasPubchem = Boolean(pubchem)
+  const hasHypothesis = Boolean(hypothesis && (hypothesis.hypothesis_summary || (Array.isArray(hypothesis.hypotheses) && hypothesis.hypotheses.length > 0)))
+  const hasDruggability = Boolean(druggability && (Array.isArray(druggability.top_pockets) || pdbViewerPath || druggability.message))
+  const hasPdbVisualization = Boolean(pdbVisualization && (proteinViewerPath || proteinPdbPath || pdbVisualization.message))
+
+  if (!(
+    hasDownloads
+    || hasVisuals
+    || hasNetwork
+    || hasLiterature
+    || hasDeg
+    || hasPathway
+    || hasRwr
+    || hasL1000
+    || hasOpenTargets
+    || hasPrimeKg
+    || hasPubchem
+    || hasHypothesis
+    || hasDruggability
+    || hasPdbVisualization
+  )) {
+    return null
+  }
 
   return (
-    <aside className="insights-panel">
+    <div className="technical-output">
       <section className="technical-panel">
         <div className="technical-hero">
-          <div className="eyebrow">Technical results</div>
+          <div className="eyebrow">Technical outputs</div>
           <div className="technical-hero-row">
             <h3>{formatArm(meta.analysis_arm)}</h3>
             <div className="chat-badge">{formatArm(meta.analysis_arm)}</div>
           </div>
-          <p>Structured outputs stay anchored here so the answer thread can stay readable.</p>
-          {runMetrics.length > 0 && (
-            <div className="metric-grid">
-              {runMetrics.map((metric) => (
-                <div className="metric-card" key={metric.label}>
-                  <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
-                </div>
-              ))}
-            </div>
-          )}
+          <p>Structured tables and files from this response.</p>
         </div>
 
-        {(degCsvHref || volcanoPath || l1000CsvHref || pathwayCsvHref) && (
-          <SectionCard title="Downloads" subtitle="Export the current technical outputs for downstream analysis.">
+        {hasDownloads && (
+          <TechnicalSection title="Downloads" subtitle="Export the current technical outputs for downstream analysis.">
             <div className="download-grid">
               <DownloadLink
                 disabled={!degCsvHref}
@@ -570,7 +639,7 @@ function TechnicalPanel({ meta }) {
               </DownloadLink>
               <DownloadLink
                 disabled={!volcanoPath}
-                filename="deg_volcano.png"
+                filename={volcanoMode === 'html' ? 'deg_volcano.html' : 'deg_volcano.png'}
                 href={volcanoPath ? buildAssetUrl(volcanoPath, { download: true }) : ''}
               >
                 Volcano plot
@@ -589,22 +658,73 @@ function TechnicalPanel({ meta }) {
               >
                 Pathway CSV
               </DownloadLink>
+              <DownloadLink
+                disabled={!graphmlPath}
+                filename="string_network.graphml"
+                href={graphmlPath ? buildAssetUrl(graphmlPath, { download: true }) : ''}
+              >
+                STRING graph GraphML
+              </DownloadLink>
+              <DownloadLink
+                disabled={!pdbViewerPath}
+                filename={`${druggability?.gene || 'protein'}_pocket_viewer.html`}
+                href={pdbViewerPath ? buildAssetUrl(pdbViewerPath, { download: true }) : ''}
+              >
+                PDB viewer
+              </DownloadLink>
+              <DownloadLink
+                disabled={!fixedPdbPath}
+                filename={`${druggability?.gene || 'protein'}_fixed.pdb`}
+                href={fixedPdbPath ? buildAssetUrl(fixedPdbPath, { download: true }) : ''}
+              >
+                Fixed PDB
+              </DownloadLink>
+              <DownloadLink
+                disabled={!rawPdbPath}
+                filename={`${druggability?.gene || 'protein'}_raw.pdb`}
+                href={rawPdbPath ? buildAssetUrl(rawPdbPath, { download: true }) : ''}
+              >
+                Raw PDB
+              </DownloadLink>
+              <DownloadLink
+                disabled={!dogsiteTablePath}
+                filename={`${druggability?.gene || 'protein'}_dogsite_table.txt`}
+                href={dogsiteTablePath ? buildAssetUrl(dogsiteTablePath, { download: true }) : ''}
+              >
+                DoGSite table
+              </DownloadLink>
+              <DownloadLink
+                disabled={!proteinViewerPath}
+                filename={`${pdbVisualization?.gene || pdbVisualization?.uniprot_id || 'protein'}_pdb_viewer.html`}
+                href={proteinViewerPath ? buildAssetUrl(proteinViewerPath, { download: true }) : ''}
+              >
+                Protein viewer
+              </DownloadLink>
+              <DownloadLink
+                disabled={!proteinPdbPath}
+                filename={`${pdbVisualization?.gene || pdbVisualization?.uniprot_id || 'protein'}.pdb`}
+                href={proteinPdbPath ? buildAssetUrl(proteinPdbPath, { download: true }) : ''}
+              >
+                Protein PDB
+              </DownloadLink>
             </div>
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {(pyvisHtmlPath || keggPath || volcanoPath) && (
-          <SectionCard title="Visual outputs" subtitle="Generated artifacts are embedded here, matching the Streamlit workspace.">
+        {hasVisuals && (
+          <TechnicalSection title="Visual outputs" subtitle="Generated artifacts are embedded here, matching the Streamlit workspace.">
             <div className="artifact-grid">
               <ArtifactPreview label="Network visualization" mode="html" path={pyvisHtmlPath} />
               <ArtifactPreview label="KEGG pathway" mode="image" path={keggPath} />
-              <ArtifactPreview label="Volcano plot" mode="image" path={volcanoPath} />
+              <ArtifactPreview label="Volcano plot" mode={volcanoMode} path={volcanoPath} />
+              <ArtifactPreview label="PDB pocket viewer" mode="html" path={pdbViewerPath} />
+              <ArtifactPreview label="Protein PDB viewer" mode="html" path={proteinViewerPath} />
             </div>
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {network && (network.nodes || network.edges || topDegree.length > 0) && (
-          <SectionCard title="Network summary" subtitle="Graph context from the current analysis run.">
+        {hasNetwork && (
+          <TechnicalSection title="Network summary" subtitle="Graph context from the current analysis run.">
             <div className="summary-pill-grid">
               <div className="summary-pill">
                 <span>Nodes</span>
@@ -629,11 +749,11 @@ function TechnicalPanel({ meta }) {
                 ))}
               </div>
             )}
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {(rankedPapers.length > 0 || scannedPapers.length > 0 || literaturePoints.length > 0 || literatureReferences.length > 0 || meta.literature_summary) && (
-          <SectionCard
+        {hasLiterature && (
+          <TechnicalSection
             title="Literature results"
             subtitle={meta.disease_name ? `Context: ${meta.disease_name}` : 'Evidence gathered from literature retrieval.'}
           >
@@ -701,11 +821,11 @@ function TechnicalPanel({ meta }) {
                 ))}
               </div>
             )}
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {(degUpRows.length > 0 || degDownRows.length > 0) && (
-          <SectionCard title="Differential expression" subtitle="Top DEG rows from the current comparison.">
+        {hasDeg && (
+          <TechnicalSection title="Differential expression" subtitle="Top DEG rows from the current comparison.">
             {degUpRows.length > 0 && (
               <div className="technical-table">
                 <h4>Top up-regulated genes</h4>
@@ -740,12 +860,12 @@ function TechnicalPanel({ meta }) {
                 ))}
               </div>
             )}
-          </SectionCard>
+          </TechnicalSection>
         )}
 
         {Object.entries(enrichrLibs).map(([library, terms]) => (
           Array.isArray(terms) && terms.length > 0 ? (
-            <SectionCard key={library} title={library} subtitle="Pathway enrichment results.">
+            <TechnicalSection key={library} title={library} subtitle="Pathway enrichment results.">
               <div className="technical-table">
                 <div className="technical-row technical-head technical-row-wide">
                   <span>Term</span>
@@ -760,16 +880,16 @@ function TechnicalPanel({ meta }) {
                     <span>{formatNumber(term.p_value ?? term.p)}</span>
                     <span>{formatNumber(term.adjusted_p_value ?? term.adj)}</span>
                     <span>{formatNumber(term.combined_score ?? term.cs)}</span>
-                    <span>{Array.isArray(term.overlapping_genes) ? term.overlapping_genes.join(', ') : Array.isArray(term.genes) ? term.genes.join(', ') : '-'}</span>
+                    <span>{formatGeneList(term.overlapping_genes || term.genes)}</span>
                   </div>
                 ))}
               </div>
-            </SectionCard>
+            </TechnicalSection>
           ) : null
         ))}
 
-        {rwrRows.length > 0 && (
-          <SectionCard title="Random Walk with Restart" subtitle="Ranked targets from the stored or current seed genes.">
+        {hasRwr && (
+          <TechnicalSection title="Random Walk with Restart" subtitle="Ranked targets from the stored or current seed genes.">
             <div className="technical-table">
               <div className="technical-row technical-head technical-row-two">
                 <span>Gene</span>
@@ -782,11 +902,11 @@ function TechnicalPanel({ meta }) {
                 </div>
               ))}
             </div>
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {l1000 && (
-          <SectionCard title="L1000CDS2 matches" subtitle="Top compound matches from the current reversal search.">
+        {hasL1000 && (
+          <TechnicalSection title="L1000CDS2 matches" subtitle="Top compound matches from the current reversal search.">
             {requestedCellLines.length > 0 ? <p><strong>Cell lines:</strong> {requestedCellLines.join(', ')}</p> : null}
             {Array.isArray(l1000.top_drugs) && l1000.top_drugs.length > 0 ? (
               <div className="technical-table">
@@ -810,11 +930,11 @@ function TechnicalPanel({ meta }) {
             ) : (
               <p>{l1000.message || 'No L1000CDS2 results available.'}</p>
             )}
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {openTargets && (
-          <SectionCard title="OpenTargets" subtitle="Association summary from the current OpenTargets lookup.">
+        {hasOpenTargets && (
+          <TechnicalSection title="OpenTargets" subtitle="Association summary from the current OpenTargets lookup.">
             <div className="summary-pill-grid">
               <div className="summary-pill">
                 <span>Gene</span>
@@ -833,11 +953,11 @@ function TechnicalPanel({ meta }) {
                 <strong>{formatNumber(openTargets.association_score)}</strong>
               </div>
             </div>
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {primeKg && (
-          <SectionCard title="PrimeKG" subtitle="Knowledge graph answer and returned rows.">
+        {hasPrimeKg && (
+          <TechnicalSection title="PrimeKG" subtitle="Knowledge graph answer and returned rows.">
             {primeKg.answer ? <p><strong>Answer:</strong> {primeKg.answer}</p> : null}
             {primeKg.cypher ? <pre className="trace-code">{primeKg.cypher}</pre> : null}
             {Array.isArray(primeKg.rows) && primeKg.rows.length > 0 && (
@@ -850,11 +970,11 @@ function TechnicalPanel({ meta }) {
                 ))}
               </div>
             )}
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {pubchem && (
-          <SectionCard title="PubChem" subtitle="Compound metadata and synthesis context.">
+        {hasPubchem && (
+          <TechnicalSection title="PubChem" subtitle="Compound metadata and synthesis context.">
             <p><strong>Compound:</strong> {pubchem.title || pubchem.drug_name || '-'}</p>
             <p><strong>CID:</strong> {pubchem.cid || '-'}</p>
             {pubchem.matched_query ? <p><strong>Matched query:</strong> {pubchem.matched_query}</p> : null}
@@ -884,11 +1004,78 @@ function TechnicalPanel({ meta }) {
                 </ul>
               </div>
             )}
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {hypothesis && (
-          <SectionCard title="Experimental hypotheses" subtitle="LLM-generated validation ideas grounded in prior chat context and stored memory.">
+        {hasDruggability && (
+          <TechnicalSection title="Druggability" subtitle="Structure-backed DoGSite pocket results and local PDB artifacts.">
+            <div className="summary-pill-grid">
+              <div className="summary-pill">
+                <span>Gene</span>
+                <strong>{druggability.gene || '-'}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>UniProt</span>
+                <strong>{druggability.uniprot_id || '-'}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>Source</span>
+                <strong>{druggability.structure_source || '-'}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>DoGSite job</span>
+                <strong>{druggability.dogsite_job_id || '-'}</strong>
+              </div>
+            </div>
+            {Array.isArray(druggability.top_pockets) && druggability.top_pockets.length > 0 ? (
+              <div className="technical-table">
+                <div className="technical-row technical-head technical-row-pocket">
+                  <span>Pocket</span>
+                  <span>Drug score</span>
+                  <span>Volume</span>
+                  <span>Residue PDB</span>
+                </div>
+                {druggability.top_pockets.slice(0, 10).map((row, index) => (
+                  <div className="technical-row technical-row-pocket" key={`${row.name || 'pocket'}-${index}`}>
+                    <span>{row.name || `Pocket ${index + 1}`}</span>
+                    <span>{formatNumber(row.drug_score)}</span>
+                    <span>{formatNumber(row.volume)}</span>
+                    <span>{row.residue_file || '-'}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>{druggability.message || 'No pocket rows available.'}</p>
+            )}
+          </TechnicalSection>
+        )}
+
+        {hasPdbVisualization && (
+          <TechnicalSection title="PDB visualization" subtitle="Fetched protein structure and generated interactive 3D viewer.">
+            <div className="summary-pill-grid">
+              <div className="summary-pill">
+                <span>Gene</span>
+                <strong>{pdbVisualization.gene || '-'}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>UniProt</span>
+                <strong>{pdbVisualization.uniprot_id || '-'}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>Source</span>
+                <strong>{pdbVisualization.structure_source || '-'}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>PDB</span>
+                <strong>{pdbVisualization.pdb_id || '-'}</strong>
+              </div>
+            </div>
+            {proteinPdbPath ? <p><strong>PDB file:</strong> {proteinPdbPath}</p> : <p>{pdbVisualization.message || 'No PDB file available.'}</p>}
+          </TechnicalSection>
+        )}
+
+        {hasHypothesis && (
+          <TechnicalSection title="Experimental hypotheses" subtitle="LLM-generated validation ideas grounded in prior chat context and stored memory.">
             {hypothesis.hypothesis_summary ? <p>{hypothesis.hypothesis_summary}</p> : null}
             {Array.isArray(hypothesis.hypotheses) && hypothesis.hypotheses.length > 0 ? (
               <div className="trace-list">
@@ -914,87 +1101,20 @@ function TechnicalPanel({ meta }) {
                 ))}
               </div>
             ) : null}
-          </SectionCard>
+          </TechnicalSection>
         )}
 
-        {memoryLookup && Object.keys(memoryLookup).length > 0 && (
-          <SectionCard title="Lookup results" subtitle="Structured memory lookup values returned by the agent.">
-            {renderKvList(memoryLookup, 'memory-lookup')}
-          </SectionCard>
-        )}
-
-        {memorySlice && Object.keys(memorySlice).length > 0 && (
-          <SectionCard title="Memory slice" subtitle="Subset selections from stored technical state.">
-            {renderKvList(memorySlice, 'memory-slice')}
-          </SectionCard>
-        )}
-
-        {toolHistory.length > 0 && (
-          <SectionCard title="Tool trace" subtitle="Recent structured tool calls for this chat.">
-            <div className="trace-list">
-              {toolHistory.map((step, index) => (
-                <details className="trace-step" key={`trace-${index}`}>
-                  <summary className="trace-step-header">
-                    <div className="trace-step-index">Step {index + 1}</div>
-                    <div className="trace-step-name">{step.tool || 'tool'}</div>
-                  </summary>
-                  {step.args && typeof step.args === 'object' && (
-                    <div className="trace-block">
-                      <div className="trace-label">Args</div>
-                      {renderKvList(step.args, `args-${index}`)}
-                    </div>
-                  )}
-                  {step.result && typeof step.result === 'object' && (
-                    <div className="trace-block">
-                      <div className="trace-label">Result</div>
-                      {renderKvList(step.result, `result-${index}`)}
-                    </div>
-                  )}
-                </details>
-              ))}
-            </div>
-          </SectionCard>
-        )}
       </section>
-    </aside>
+    </div>
   )
 }
 
 function EmptyState() {
   return (
     <div className="empty-state">
-      <div className="eyebrow">Biomedical workspace</div>
-      <h3>Keep the narrative answer and the technical evidence in sync.</h3>
-      <p>The React workspace now mirrors the Streamlit outputs, including literature evidence, network artifacts, DEG tables, and visual plots.</p>
-
-      <div className="empty-grid">
-        <div className="empty-card accent-cyan">
-          <div className="empty-card-title">Typical workflows</div>
-          <ul>
-            <li>Run DEG from an SRP study, then inspect pathways and volcano output.</li>
-            <li>Reuse stored DEG genes for RWR target ranking and network exploration.</li>
-            <li>Follow with disease literature, OpenTargets, PubChem, or L1000 matches.</li>
-          </ul>
-        </div>
-
-        <div className="empty-card accent-amber">
-          <div className="empty-card-title">Good prompts</div>
-          <ul>
-            <li>Identify DEGs between Healthy lung tissue and COPD lung tissue for SRP123456.</li>
-            <li>Use the stored DEG genes to run pathway enrichment and visualize a volcano plot.</li>
-            <li>Summarize the literature evidence and show the current technical outputs.</li>
-          </ul>
-        </div>
-
-        <div className="empty-card accent-slate">
-          <div className="empty-card-title">Workspace layout</div>
-          <ul>
-            <li>The center column keeps the chat and loading status focused.</li>
-            <li>The right rail renders all technical artifacts and structured results.</li>
-            <li>Each chat preserves its own metadata so follow-up analysis stays grounded.</li>
-          </ul>
-        </div>
-      </div>
+      <div className="eyebrow">GEA Agent</div>
+      <h3>Ask a biomedical question to begin.</h3>
+      <p>Your question will appear as a bubble here, followed by the agent answer, then your next follow-up.</p>
     </div>
   )
 }
@@ -1014,14 +1134,10 @@ function App() {
   const [messageText, setMessageText] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
   const [appError, setAppError] = useState('')
-  const [technicalMeta, setTechnicalMeta] = useState(null)
-
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) || null,
     [activeChatId, chats],
   )
-
-  const runMetrics = useMemo(() => getRunMetrics(technicalMeta), [technicalMeta])
 
   useEffect(() => {
     const token = getToken()
@@ -1077,10 +1193,6 @@ function App() {
     if (!user || !activeChatId) return
     localStorage.setItem(`gea_last_chat_${user.id}`, String(activeChatId))
   }, [activeChatId, user])
-
-  useEffect(() => {
-    setTechnicalMeta(activeChat?.last_meta || null)
-  }, [activeChat])
 
   useEffect(() => {
     if (!user || !activeChatId) return
@@ -1143,7 +1255,6 @@ function App() {
     try {
       const result = await sendMessage(activeChatId, text)
       setMessages(result.messages || [])
-      setTechnicalMeta(result.meta || null)
       setChats((current) =>
         current
           .map((chat) => (chat.id === activeChatId ? result.chat || chat : chat))
@@ -1157,15 +1268,13 @@ function App() {
     }
   }
 
-  async function handleNewChat(agentType = 'general') {
+  async function handleNewChat() {
     setAppError('')
     try {
-      const title = agentType === 'literature' ? 'Literature chat' : 'New chat'
-      const created = await createChat(title, agentType)
+      const created = await createChat('New chat', 'general')
       setChats((current) => [created, ...current])
       setActiveChatId(created.id)
       setMessages([])
-      setTechnicalMeta(created.last_meta || null)
     } catch (error) {
       setAppError(error.message)
     }
@@ -1179,7 +1288,6 @@ function App() {
     setActiveChatId(null)
     setAppError('')
     setAuthError('')
-    setTechnicalMeta(null)
   }
 
   if (bootLoading) {
@@ -1266,32 +1374,8 @@ function App() {
           <button className="ghost" onClick={handleLogout} type="button">Log out</button>
         </div>
 
-        <div className="sidebar-panel">
-          <div className="sidebar-panel-top">
-            <div>
-              <div className="eyebrow">Current run</div>
-              <h3>{formatChatMode(activeChat, technicalMeta)}</h3>
-            </div>
-            <div className="chat-badge">{activeChat?.message_count || 0} msgs</div>
-          </div>
-          <p className="sidebar-panel-copy">
-            {activeChat?.last_message_preview || 'Pick a chat or start a new analysis to populate the workspace.'}
-          </p>
-          {runMetrics.length > 0 && (
-            <div className="sidebar-metrics">
-              {runMetrics.slice(0, 4).map((metric) => (
-                <div className="sidebar-metric" key={metric.label}>
-                  <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div className="sidebar-actions">
-          <button className="primary new-chat" onClick={() => handleNewChat('general')} type="button">New analysis</button>
-          <button className="ghost new-chat" onClick={() => handleNewChat('literature')} type="button">Literature chat</button>
+          <button className="primary new-chat" onClick={handleNewChat} type="button">New chat</button>
         </div>
 
         {loadingChats ? (
@@ -1307,7 +1391,6 @@ function App() {
               >
                 <div className="chat-item-top">
                   <div className="chat-title">{chat.title}</div>
-                  <div className="chat-mini-badge">{formatChatMode(chat, chat.last_meta)}</div>
                 </div>
                 <div className="chat-preview">{chat.last_message_preview || 'No messages yet.'}</div>
                 <div className="chat-meta-row">
@@ -1326,85 +1409,62 @@ function App() {
             <div className="eyebrow">Current chat</div>
             <h2>{activeChat?.title || 'Select a chat'}</h2>
           </div>
-          <div className="header-actions">
-            {technicalMeta?.route_rationale ? <div className="header-caption">{technicalMeta.route_rationale}</div> : null}
-            <div className="chat-badge">{formatChatMode(activeChat, technicalMeta)}</div>
-          </div>
         </header>
 
         {appError ? <div className="alert error">{appError}</div> : null}
 
-        <div className="workspace-layout">
-          <section className="conversation-panel">
-            <div className="summary-strip">
-              {runMetrics.length > 0 ? (
-                runMetrics.map((metric) => (
-                  <div className="summary-pill" key={metric.label}>
-                    <span>{metric.label}</span>
-                    <strong>{metric.value}</strong>
-                  </div>
-                ))
-              ) : (
-                <div className="summary-banner">
-                  Ask for DEG, enrichment, RWR, literature, or drug matching to populate the technical workspace.
-                </div>
-              )}
-            </div>
-
-            <section className="message-list">
-              {loadingMessages ? (
-                <LoadingState label="Loading conversation" />
-              ) : messages.length === 0 ? (
-                <EmptyState />
-              ) : (
-                <>
-                  {messages.map((message, index) => (
-                    <MessageBubble
-                      key={`${message.role}-${index}-${message.created_at || ''}`}
-                      message={message}
-                    />
-                  ))}
-                  {chatBusy ? (
-                    <MessageBubble
-                      message={{
-                        role: 'assistant',
-                        content: 'Generating the answer and updating the technical outputs...',
-                        created_at: new Date().toISOString(),
-                        pending: true,
-                      }}
-                    />
-                  ) : null}
-                </>
-              )}
-            </section>
-
-            <form className="composer" onSubmit={handleSendMessage}>
-              <div className={`composer-shell ${chatBusy ? 'busy' : ''}`}>
-                <textarea
-                  value={messageText}
-                  onChange={(event) => setMessageText(event.target.value)}
-                  placeholder="Ask a follow-up or start a new analysis..."
-                  rows={4}
-                  disabled={!activeChatId || chatBusy}
-                />
-                <div className="composer-actions">
-                  <div className="composer-hint">
-                    {chatBusy
-                      ? 'The agent is working through the current request.'
-                      : activeChat
-                        ? `Chat updated ${formatTime(activeChat.updated_at)}`
-                        : 'Create or select a chat to begin.'}
-                  </div>
-                  <button className="primary" type="submit" disabled={chatBusy || !activeChatId}>
-                    {chatBusy ? 'Thinking...' : 'Send'}
-                  </button>
-                </div>
-              </div>
-            </form>
+        <section className="conversation-panel">
+          <section className="message-list">
+            {loadingMessages ? (
+              <LoadingState label="Loading conversation" />
+            ) : messages.length === 0 ? (
+              <EmptyState />
+            ) : (
+              <>
+                {messages.map((message, index) => (
+                  <MessageBubble
+                    key={`${message.role}-${index}-${message.created_at || ''}`}
+                    message={message}
+                  />
+                ))}
+                {chatBusy ? (
+                  <MessageBubble
+                    message={{
+                      role: 'assistant',
+                      content: 'Generating the answer...',
+                      created_at: new Date().toISOString(),
+                      pending: true,
+                    }}
+                  />
+                ) : null}
+              </>
+            )}
           </section>
 
-          <TechnicalPanel meta={technicalMeta} />
-        </div>
+          <form className="composer" onSubmit={handleSendMessage}>
+            <div className={`composer-shell ${chatBusy ? 'busy' : ''}`}>
+              <textarea
+                value={messageText}
+                onChange={(event) => setMessageText(event.target.value)}
+                placeholder="Ask a follow-up or start a new chat..."
+                rows={4}
+                disabled={!activeChatId || chatBusy}
+              />
+              <div className="composer-actions">
+                <div className="composer-hint">
+                  {chatBusy
+                    ? 'The agent is working through the current request.'
+                    : activeChat
+                      ? `Chat updated ${formatTime(activeChat.updated_at)}`
+                      : 'Create or select a chat to begin.'}
+                </div>
+                <button className="primary" type="submit" disabled={chatBusy || !activeChatId}>
+                  {chatBusy ? 'Thinking...' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </section>
       </main>
     </div>
   )

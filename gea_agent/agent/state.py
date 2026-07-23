@@ -34,6 +34,7 @@ class AgentState(TypedDict, total=False):
     memory_downregulated_genes: list[str]
     memory_deg_analysis: dict[str, Any]
     memory_deg_gene_records: list[dict[str, Any]]
+    memory_srp_metadata_result: dict[str, Any]
     memory_control_name: str
     memory_test_name: str
     memory_enrichr: dict[str, Any]
@@ -45,6 +46,8 @@ class AgentState(TypedDict, total=False):
     memory_l1000cds2_result: dict[str, Any]
     memory_pubchem_result: dict[str, Any]
     memory_hypothesis_result: dict[str, Any]
+    memory_druggability_result: dict[str, Any]
+    memory_pdb_visualization_result: dict[str, Any]
 
     # disease literature branch
     disease_name: str
@@ -69,6 +72,7 @@ class AgentState(TypedDict, total=False):
     upregulated_genes: list[str]
     downregulated_genes: list[str]
     deg_gene_records: list[dict[str, Any]]
+    srp_metadata_result: dict[str, Any]
 
     # technical branch
     genes: list[str]
@@ -83,6 +87,8 @@ class AgentState(TypedDict, total=False):
     l1000cds2_result: dict[str, Any]
     pubchem_result: dict[str, Any]
     hypothesis_result: dict[str, Any]
+    druggability_result: dict[str, Any]
+    pdb_visualization_result: dict[str, Any]
 
     # final
     answer: str

@@ -539,6 +539,40 @@ def _fallback_answer(payload: dict[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
+def _suggested_followup(payload: dict[str, Any]) -> str:
+    arm = str(payload.get("arm") or "general").strip().lower()
+    if arm == "srp":
+        return "I can next run pathway enrichment on the up-regulated and down-regulated DEG sets, or make a volcano plot from these DEG rows."
+    if arm == "pathway" or payload.get("enr"):
+        return "I can next visualize a top KEGG pathway or prioritize candidate targets from the enriched gene set with RWR."
+    if arm in {"memory_rwr", "general"} and payload.get("rwr"):
+        return "I can next check the top RWR candidates against OpenTargets or PrimeKG for disease and drug relationships."
+    if arm == "l1000cds2":
+        return "I can next look up a top compound in PubChem to summarize supported genes, pathways, and disease annotations."
+    if arm == "pubchem":
+        return "I can next compare the PubChem-supported annotations with your stored DEG or pathway results."
+    if arm == "opentargets":
+        return "I can next follow the strongest associated genes into PrimeKG or generate hypothesis candidates."
+    if arm == "primekg":
+        return "I can next validate the returned genes with OpenTargets or turn the related genes into an enrichment analysis."
+    if arm == "hypothesis":
+        return "I can next run a separate literature or OpenTargets evidence check for any hypothesis you want to investigate."
+    if arm in {"literature", "research_literature", "disease"}:
+        return "I can next convert the literature-supported genes into RWR target prioritization or pathway enrichment."
+    if arm in {"memory_lookup", "state_lookup", "memory_slice"}:
+        return "I can next use this stored selection as input for pathway enrichment, RWR, or literature support."
+    return "I can next run a supported follow-up using the stored genes, pathways, literature, or DEG results from this session."
+
+
+def _ensure_suggested_followup(answer: str, payload: dict[str, Any]) -> str:
+    cleaned = str(answer or "").strip()
+    if not cleaned:
+        return cleaned
+    if "**suggested follow-up**" in cleaned.lower() or "suggested follow-up" in cleaned.lower():
+        return cleaned
+    return f"{cleaned}\n\n**Suggested Follow-Up**\n{_suggested_followup(payload)}".strip()
+
+
 def synthesize_technical_response(
     *,
     user_query: str,
@@ -566,12 +600,13 @@ def synthesize_technical_response(
         "arm": arm,
         "q": _compact_text(user_query, limit=350),
         "seeds": _compact_seed_list(seed_genes),
-        "enr": _compact_enrichr(enrichr),
     }
 
     if arm == "srp":
         payload["srp"] = _compact_seed_list(srp_ids, limit=10)
         payload["deg"] = _compact_deg_analysis(deg_analysis)
+    elif arm == "pathway":
+        payload["enr"] = _compact_enrichr(enrichr)
     elif arm == "l1000cds2":
         payload["l1000"] = _compact_l1000cds2(deg_analysis)
     elif arm == "pubchem":
@@ -614,17 +649,18 @@ def synthesize_technical_response(
                     "Return plain text only, not JSON and not markdown code fences. "
                     "Answer the user's question directly in clear, professional technical language. "
                     "Format the response as a polished technical report using Markdown. "
-                    "Use bold section headings such as `**Summary**`, `**Key Findings**`, `**Interpretation**`, `**Evidence**`, and `**References**` when relevant. "
-                    "Start with a clear summary, then provide comprehensive supporting detail when structured evidence is available. "
-                    "When multiple findings are present, use organized bullets or tables-in-prose style sections so the answer remains readable while still being thorough. "
+                    "Use bold section headings such as `**Summary**`, `**Key Findings**`, `**Interpretation**`, `**Evidence**`, and `**References**` when relevant and necessary. Do not repeat the same information under different headings; instead, synthesize and integrate the evidence into a coherent narrative. "
+                    "Start with a clear summary, then briefly describe the key points with evidence when available. "
+                    "When multiple findings are present, use organized bullets so the answer remains readable while still being thorough. "
                     "Include methods/context, key results, notable genes or terms, interpretation, caveats, and practical next steps when those are supported by the payload. "
                     "Do not compress away important evidence solely for brevity. "
+                    "Avoid repetitions across sections; instead, synthesize and integrate the evidence into a coherent narrative. "
                     "Lead with the highest-signal findings, then add relevant supporting detail from the payload. "
                     "State uncertainty explicitly whenever evidence is limited, mixed, or indirect. "
-                    "Sound like a professional biomedical analyst: precise, neutral, and well organized. "
-                    "Avoid casual phrasing, filler, repetition, and overly conversational wording. "
+                    "Sound like a professional biomedical analyst: precise, neutral, well organized, and conversational enough to guide the user through the next move. "
+                    "Avoid filler, repetition, and unsupported enthusiasm. "
                     "Respect the active context: "
-                    "for `srp`, summarize only DEG plus any provided enrichment context, and include two separate Markdown tables named `Top Up-Regulated Genes` and `Top Down-Regulated Genes` using the provided `up_rows` and `down_rows`; each table should include Gene, log2FC, and p-value columns and at most 10 rows; if lof2fc and padj are not given by user say that the default values have been used; "
+                    "for `srp`, summarize only DEG results and include two separate Markdown tables named `Top Up-Regulated Genes` and `Top Down-Regulated Genes` using the provided `up_rows` and `down_rows`; each table should include Gene, log2FC, and p-value columns and at most 10 rows; if log2FC and padj are not given by user say that the default values have been used; "
                     "for `visualize`, if payload contains *_path fields, just say that the visualization was generated successfully; "
                     "for `l1000cds2`, summarize only the returned small-molecule matches, requested cell-line filter, and whether the result reflects reversal or mimic mode; "
                     "for `pubchem`, identify only genes, pathways, and diseases that are explicitly supported or reasonably inferable from the provided PubChem text and annotations; organize that answer with `Genes`, `Pathways`, and `Diseases` labels when possible; if PubChem content does not support one of those categories, say so clearly; "
@@ -632,13 +668,15 @@ def synthesize_technical_response(
                     "for `opentargets`, summarize only the association evidence provided; "
                     "for `memory_lookup`, `state_lookup`, and `memory_slice`, convert the stored values into a clean readable answer and avoid raw JSON unless the user asked for literal state; "
                     "for `pathway`, summarize the enrichment results from `enr`, highlighting the top terms, libraries, adjusted p-values when available, and overlapping genes; "
-                    "for pathway enrichment, summarize the top enriched terms from `enr` even when the active arm is `general`; "
-                    "for `memory_rwr`, summarize only the stored-gene RWR prioritization; "
+                    "Only mention pathway enrichment, Enrichr, KEGG, Reactome, GO terms, adjusted p-values, or overlapping pathway genes when the active arm is exactly `pathway`; "
+                    "for `memory_rwr`, summarize only the RWR/network-prioritization result; do not mention pathway enrichment, Enrichr terms, KEGG/Reactome/GO terms, adjusted p-values, or pathway overlap genes even if those genes were used internally as seeds; "
                     "for `research_literature` and `literature`, always synthesize the literature summary, key points, and references into a polished final answer; do not return raw JSON, raw tool output, or unsynthesized citation lists; "
                     "for `disease`, summarize literature findings first, then relevant network or enrichment context if present. "
                     "For the general, literature, research-literature, or disease-style response, prefer this order when supported by the payload: `**Summary**`, `**Key Findings**`, `**Interpretation**`, and `**References**`. "
                     "The answer may be comprehensive; prioritize completeness, traceability, and scientific usefulness over brevity. "
-                    "When literature references are available, end with a `**References**` section.",
+                    "After completing an analysis, include exactly one short `**Suggested Follow-Up**` section with a concrete next analysis the agent can perform from the available state, such as pathway enrichment, RWR target prioritization, literature support, OpenTargets checks, L1000CDS2 drug matching, PubChem lookup, hypothesis generation, or a supported visualization. "
+                    "Do not suggest unavailable capabilities. "
+                    "When literature references are available, place `**Suggested Follow-Up**` after the `**References**` section; otherwise end with `**Suggested Follow-Up**`.",
                 ),
                 ("user", json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
             ]
@@ -646,4 +684,4 @@ def synthesize_technical_response(
         answer = _message_content_text(getattr(resp, "content", ""))
     except Exception:
         answer = ""
-    return answer or _fallback_answer(payload)
+    return _ensure_suggested_followup(answer or _fallback_answer(payload), payload)

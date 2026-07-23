@@ -287,7 +287,7 @@ def run_deg_r_analysis(
     result = _read_deg_csv(output_path)
     result["log2fold"] = float(log2fold)
     result["padj"] = float(padj)
-    result["thresholds_applied_post_hoc"] = True
+    result["thresholds_applied"] = True
     result["message"] = (
         str(result.get("message") or "").strip()
         + " Requested log2fold/padj thresholds were applied in Python after the R script completed because the script itself hardcodes those values."

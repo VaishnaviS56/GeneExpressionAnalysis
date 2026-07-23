@@ -43,6 +43,7 @@ MEMORY_DEFAULTS: dict[str, Any] = {
     "memory_downregulated_genes": [],
     "memory_deg_analysis": {},
     "memory_deg_gene_records": [],
+    "memory_srp_metadata_result": {},
     "memory_control_name": "",
     "memory_test_name": "",
     "memory_enrichr": {},
@@ -54,6 +55,8 @@ MEMORY_DEFAULTS: dict[str, Any] = {
     "memory_l1000cds2_result": {},
     "memory_pubchem_result": {},
     "memory_hypothesis_result": {},
+    "memory_druggability_result": {},
+    "memory_pdb_visualization_result": {},
     "memory_slice_result": {},
 }
 
@@ -91,6 +94,10 @@ def _build_memory_summary() -> str:
         parts.append(f"Stored DEG genes available: {len(st.session_state.memory_deg_genes)}.")
     if st.session_state.memory_deg_gene_records:
         parts.append(f"Stored DEG gene records available: {len(st.session_state.memory_deg_gene_records)}.")
+    if st.session_state.memory_srp_metadata_result:
+        srp_ids = st.session_state.memory_srp_metadata_result.get("srp_ids", [])
+        if isinstance(srp_ids, list) and srp_ids:
+            parts.append(f"Stored SRP metadata available for: {', '.join(str(value) for value in srp_ids[:5])}.")
     if st.session_state.memory_control_name or st.session_state.memory_test_name:
         parts.append(
             f"Stored DEG comparison: control={st.session_state.memory_control_name or 'NA'}, "
@@ -122,6 +129,19 @@ def _build_memory_summary() -> str:
         hypotheses = st.session_state.memory_hypothesis_result.get("hypotheses", [])
         if isinstance(hypotheses, list) and hypotheses:
             parts.append(f"Stored experimental hypotheses available: {len(hypotheses)}.")
+    if st.session_state.memory_druggability_result:
+        gene = st.session_state.memory_druggability_result.get("gene")
+        pockets = st.session_state.memory_druggability_result.get("top_pockets", [])
+        if gene:
+            parts.append(
+                f"Stored druggability result available for {gene}"
+                + (f" with {len(pockets)} pockets." if isinstance(pockets, list) else ".")
+            )
+    if st.session_state.memory_pdb_visualization_result:
+        gene = st.session_state.memory_pdb_visualization_result.get("gene")
+        uniprot = st.session_state.memory_pdb_visualization_result.get("uniprot_id")
+        if gene or uniprot:
+            parts.append(f"Stored PDB visualization available for {gene or uniprot}.")
     if st.session_state.memory_slice_result:
         field = st.session_state.memory_slice_result.get("field")
         selected = st.session_state.memory_slice_result.get("selected_values", [])
@@ -168,6 +188,9 @@ def _invoke_state_from_session(prompt: str) -> dict[str, Any]:
 
 
 def _update_memory_from_meta(meta: dict[str, Any]) -> None:
+    srp_metadata_result = meta.get("srp_metadata_result")
+    if isinstance(srp_metadata_result, dict) and srp_metadata_result:
+        st.session_state.memory_srp_metadata_result = srp_metadata_result
     if meta.get("analysis_arm") == "srp":
         st.session_state.memory_deg_genes = meta.get("deg_genes", []) if isinstance(meta.get("deg_genes", []), list) else []
         st.session_state.memory_upregulated_genes = meta.get("upregulated_genes", []) if isinstance(meta.get("upregulated_genes", []), list) else []
@@ -201,6 +224,12 @@ def _update_memory_from_meta(meta: dict[str, Any]) -> None:
     hypothesis_result = meta.get("hypothesis_result")
     if isinstance(hypothesis_result, dict) and hypothesis_result:
         st.session_state.memory_hypothesis_result = hypothesis_result
+    druggability_result = meta.get("druggability_result")
+    if isinstance(druggability_result, dict) and druggability_result:
+        st.session_state.memory_druggability_result = druggability_result
+    pdb_visualization_result = meta.get("pdb_visualization_result")
+    if isinstance(pdb_visualization_result, dict) and pdb_visualization_result:
+        st.session_state.memory_pdb_visualization_result = pdb_visualization_result
     memory_slice_result = meta.get("memory_slice_result")
     if isinstance(memory_slice_result, dict) and memory_slice_result:
         st.session_state.memory_slice_result = memory_slice_result
@@ -297,22 +326,78 @@ def _l1000_download_rows(l1000_result: dict[str, Any] | None) -> list[dict[str, 
     return rows
 
 
+def _druggability_download_specs(druggability_result: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(druggability_result, dict) or not druggability_result:
+        return []
+
+    specs: list[dict[str, Any]] = []
+    gene = str(druggability_result.get("gene") or "protein").strip() or "protein"
+    file_specs = [
+        ("PDB viewer", druggability_result.get("pdb_viewer_html_path"), f"{gene}_pocket_viewer.html", "text/html", "download_pdb_viewer_html"),
+        ("Sanitized protein PDB", druggability_result.get("fixed_pdb_path"), f"{gene}_fixed.pdb", "chemical/x-pdb", "download_fixed_pdb"),
+        ("Raw protein PDB", druggability_result.get("raw_pdb_path"), f"{gene}_raw.pdb", "chemical/x-pdb", "download_raw_pdb"),
+        ("DoGSite table", druggability_result.get("result_table_path"), f"{gene}_dogsite_table.txt", "text/plain", "download_dogsite_table"),
+    ]
+    for label, path, file_name, mime, key in file_specs:
+        if not isinstance(path, str) or not path.strip():
+            continue
+        try:
+            with open(path, "rb") as handle:
+                specs.append(
+                    {
+                        "label": label,
+                        "data": handle.read(),
+                        "file_name": file_name,
+                        "mime": mime,
+                        "key": key,
+                    }
+                )
+        except FileNotFoundError:
+            continue
+
+    pockets = druggability_result.get("top_pockets")
+    if isinstance(pockets, list):
+        for index, pocket in enumerate(pockets[:5], start=1):
+            if not isinstance(pocket, dict):
+                continue
+            residue_file = pocket.get("residue_file")
+            if isinstance(residue_file, str) and residue_file.strip():
+                try:
+                    with open(residue_file, "rb") as handle:
+                        specs.append(
+                            {
+                                "label": f"Pocket {index} residues",
+                                "data": handle.read(),
+                                "file_name": f"{gene}_pocket_{index}_residues.pdb",
+                                "mime": "chemical/x-pdb",
+                                "key": f"download_pocket_{index}_residues",
+                            }
+                        )
+                except FileNotFoundError:
+                    pass
+    return specs
+
+
 def _render_downloads(meta: dict[str, Any], graph: nx.Graph | None) -> None:
     deg_analysis = meta.get("deg_analysis")
     enrichr = meta.get("enrichr")
     l1000_result = meta.get("l1000cds2_result")
+    druggability_result = meta.get("druggability_result")
+    pdb_visualization_result = meta.get("pdb_visualization_result")
     volcano_plot_path = meta.get("volcano_plot_path")
 
     deg_rows = _deg_download_rows(meta, deg_analysis if isinstance(deg_analysis, dict) else None)
     pathway_rows = _pathway_download_rows(enrichr if isinstance(enrichr, dict) else None)
     l1000_rows = _l1000_download_rows(l1000_result if isinstance(l1000_result, dict) else None)
+    druggability_specs = _druggability_download_specs(druggability_result if isinstance(druggability_result, dict) else None)
+    pdb_visualization_specs = _druggability_download_specs(pdb_visualization_result if isinstance(pdb_visualization_result, dict) else None)
     has_graph = isinstance(graph, nx.Graph) and graph.number_of_nodes() > 0
     has_volcano = isinstance(volcano_plot_path, str) and bool(volcano_plot_path.strip())
 
-    if not any((deg_rows, pathway_rows, l1000_rows, has_graph, has_volcano)):
+    if not any((deg_rows, pathway_rows, l1000_rows, druggability_specs, pdb_visualization_specs, has_graph, has_volcano)):
         return
 
-    download_specs: list[dict[str, Any]] = []
+    download_specs: list[dict[str, Any]] = list(druggability_specs) + list(pdb_visualization_specs)
     if deg_rows:
         download_specs.append(
             {
@@ -329,13 +414,14 @@ def _render_downloads(meta: dict[str, Any], graph: nx.Graph | None) -> None:
     if has_volcano:
         try:
             with open(str(volcano_plot_path), "rb") as handle:
+                is_html = str(volcano_plot_path).lower().endswith((".html", ".htm"))
                 download_specs.append(
                     {
                         "label": "Volcano plot",
                         "data": handle.read(),
-                        "file_name": "deg_volcano.png",
-                        "mime": "image/png",
-                        "key": "download_volcano_png",
+                        "file_name": "deg_volcano.html" if is_html else "deg_volcano.png",
+                        "mime": "text/html" if is_html else "image/png",
+                        "key": "download_volcano_html" if is_html else "download_volcano_png",
                     }
                 )
         except FileNotFoundError:
@@ -405,6 +491,8 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
     l1000_result = meta.get("l1000cds2_result")
     pubchem_result = meta.get("pubchem_result")
     hypothesis_result = meta.get("hypothesis_result")
+    druggability_result = meta.get("druggability_result")
+    pdb_visualization_result = meta.get("pdb_visualization_result")
 
     if analysis_arm != "srp" and isinstance(disease_name, str) and disease_name:
         st.subheader("Disease query")
@@ -505,7 +593,7 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
                                 "p_value": t.get("p_value"),
                                 "adjusted_p_value": t.get("adjusted_p_value"),
                                 "combined_score": t.get("combined_score"),
-                                "overlap_genes": ", ".join(list(t.get("overlapping_genes") or [])[:10]),
+                                "overlap_genes": ", ".join(str(gene) for gene in list(t.get("overlapping_genes") or [])),
                             }
                         )
                     st.table(rows[:10])
@@ -596,6 +684,76 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
                 ]
             )
 
+    if isinstance(druggability_result, dict) and druggability_result:
+        st.subheader("Druggability and pocket viewer")
+        caption_parts = []
+        for label, key in (
+            ("Gene", "gene"),
+            ("UniProt", "uniprot_id"),
+            ("Source", "structure_source"),
+            ("PDB", "pdb_id"),
+            ("DoGSite job", "dogsite_job_id"),
+        ):
+            value = druggability_result.get(key)
+            if value:
+                caption_parts.append(f"{label}: {value}")
+        if caption_parts:
+            st.caption(" | ".join(caption_parts))
+
+        pockets = druggability_result.get("top_pockets")
+        if isinstance(pockets, list) and pockets:
+            st.table(
+                [
+                    {
+                        "rank": row.get("rank"),
+                        "pocket": row.get("name"),
+                        "drug_score": row.get("drug_score"),
+                        "volume": row.get("volume"),
+                        "residue_file": row.get("residue_file"),
+                        "map_file": row.get("map_file"),
+                    }
+                    for row in pockets[:10]
+                    if isinstance(row, dict)
+                ]
+            )
+        else:
+            st.info(str(druggability_result.get("message") or "No pocket rows were returned."))
+
+        viewer_path = druggability_result.get("pdb_viewer_html_path")
+        if isinstance(viewer_path, str) and viewer_path.strip():
+            try:
+                with open(viewer_path, "r", encoding="utf-8") as handle:
+                    components.html(handle.read(), height=760, scrolling=True)
+                st.caption(viewer_path)
+            except FileNotFoundError:
+                st.warning("PDB pocket viewer file was not found.")
+
+    if isinstance(pdb_visualization_result, dict) and pdb_visualization_result:
+        st.subheader("PDB protein viewer")
+        caption_parts = []
+        for label, key in (
+            ("Gene", "gene"),
+            ("UniProt", "uniprot_id"),
+            ("Source", "structure_source"),
+            ("PDB", "pdb_id"),
+        ):
+            value = pdb_visualization_result.get(key)
+            if value:
+                caption_parts.append(f"{label}: {value}")
+        if caption_parts:
+            st.caption(" | ".join(caption_parts))
+        pdb_path = pdb_visualization_result.get("pdb_path") or pdb_visualization_result.get("raw_pdb_path")
+        if pdb_path:
+            st.caption(f"PDB file: {pdb_path}")
+        viewer_path = pdb_visualization_result.get("pdb_viewer_html_path")
+        if isinstance(viewer_path, str) and viewer_path.strip():
+            try:
+                with open(viewer_path, "r", encoding="utf-8") as handle:
+                    components.html(handle.read(), height=760, scrolling=True)
+                st.caption(viewer_path)
+            except FileNotFoundError:
+                st.warning("PDB viewer file was not found.")
+
     _render_downloads(meta, graph)
 
     pyvis_html_path = meta.get("pyvis_html_path")
@@ -615,7 +773,15 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
     volcano_plot_path = meta.get("volcano_plot_path")
     if isinstance(volcano_plot_path, str) and volcano_plot_path:
         st.subheader("Volcano plot")
-        st.image(volcano_plot_path, caption=volcano_plot_path)
+        if volcano_plot_path.lower().endswith((".html", ".htm")):
+            try:
+                with open(volcano_plot_path, "r", encoding="utf-8") as f:
+                    components.html(f.read(), height=820, scrolling=True)
+                st.caption(volcano_plot_path)
+            except FileNotFoundError:
+                st.warning("Volcano visualization file was not found.")
+        else:
+            st.image(volcano_plot_path, caption=volcano_plot_path)
 
     tool_history = meta.get("tool_history")
     if isinstance(tool_history, list) and tool_history:
@@ -650,7 +816,12 @@ def _render_sidebar(meta: dict[str, Any]) -> None:
 
     analysis_arm = meta.get("analysis_arm") or "disease"
     deg_analysis = meta.get("deg_analysis")
+    srp_metadata_result = meta.get("srp_metadata_result")
     rwr_genes = meta.get("rwr_genes")
+    if analysis_arm == "srp_metadata" and isinstance(srp_metadata_result, dict):
+        rows = srp_metadata_result.get("srp_metadata", [])
+        if isinstance(rows, list):
+            st.sidebar.metric("SRP metadata", len(rows))
     if analysis_arm == "srp" and isinstance(deg_analysis, dict):
         deg_genes = deg_analysis.get("genes", [])
         if isinstance(deg_genes, list):

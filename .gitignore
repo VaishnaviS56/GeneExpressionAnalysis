@@ -17,6 +17,7 @@ backend/data/
 # Ignore everything inside the GEA directory
 GEA/*
 tests/*
+
 # Allow Git to look inside subdirectories of GEA
 !GEA/**/
 # Do not ignore .R files anywhere inside GEA (at the root or nested)
@@ -26,3 +27,5 @@ tests/*
 .vscode
 __pycache__/
 *.pyc
+*.pdb
+*.ccp4
