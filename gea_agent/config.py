@@ -73,7 +73,7 @@ class Settings:
         self.string_force_rebuild: bool = os.getenv("STRING_FORCE_REBUILD", "0") == "1"
 
         self.primekg_csv_path: str = self.resolve_path(os.getenv("PRIMEKG_CSV_PATH", "kg.csv"))
-        self.streamlit_draw_graph: bool = os.getenv("STREAMLIT_DRAW_GRAPH", "0") == "1"
+        self.streamlit_draw_graph: bool = os.getenv("STREAMLIT_DRAW_GRAPH", "1") == "1"
 
     def resolve_path(self, raw_path: str) -> str:
         path = Path(str(raw_path or "").strip())

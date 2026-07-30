@@ -72,7 +72,7 @@ def build_network_visualization(
     graph,
     *,
     output_path: str = "pyvis_network.html",
-    select_top_degree: int = 300,
+    select_top_degree: int | None = None,
     allowed_nodes: list[str] | None = None,
     seed_genes: list[str] | None = None,
     rwr_genes: list[str] | None = None,
@@ -239,6 +239,12 @@ def build_volcano_plot(
 
     frame["log2FoldChange"] = pd.to_numeric(frame["log2FoldChange"], errors="coerce")
     frame["pvalue"] = pd.to_numeric(frame["pvalue"], errors="coerce")
+    if "padj" in frame.columns:
+        frame["padj"] = pd.to_numeric(frame["padj"], errors="coerce")
+    elif "pdj" in frame.columns:
+        frame["padj"] = pd.to_numeric(frame["pdj"], errors="coerce")
+    else:
+        frame["padj"] = frame["pvalue"]
     frame = frame.dropna(subset=["log2FoldChange", "pvalue"]).copy()
     if frame.empty:
         return {
@@ -250,12 +256,13 @@ def build_volcano_plot(
     frame["neg_log10_p"] = -(frame["pvalue"].clip(lower=1e-300)).map(lambda value: float(math.log10(value)))
     frame["gene_label"] = frame.apply(_deg_gene_label, axis=1)
     frame["direction"] = "neutral"
+    significance = frame["padj"].fillna(1.0) < float(pvalue_threshold)
     frame.loc[
-        (frame["log2FoldChange"] >= float(log2fc_threshold)) & (frame["pvalue"] <= float(pvalue_threshold)),
+        (frame["log2FoldChange"] > float(log2fc_threshold)) & significance,
         "direction",
     ] = "up"
     frame.loc[
-        (frame["log2FoldChange"] <= -float(log2fc_threshold)) & (frame["pvalue"] <= float(pvalue_threshold)),
+        (frame["log2FoldChange"] < -float(log2fc_threshold)) & significance,
         "direction",
     ] = "down"
 
@@ -284,10 +291,10 @@ def build_volcano_plot(
     )
     ymax = float(frame["neg_log10_p"].max()) if not frame.empty else 0.0
     y_max = max(ymax, -float(math.log10(float(pvalue_threshold))) * 1.25, 1.0)
-    canvas_left = -500.0
-    canvas_right = 500.0
-    canvas_top = -330.0
-    canvas_bottom = 330.0
+    canvas_left = -480.0
+    canvas_right = 480.0
+    canvas_top = -300.0
+    canvas_bottom = 300.0
 
     def scale_x(value: Any) -> float:
         return (float(value) / x_abs) * canvas_right
@@ -300,10 +307,10 @@ def build_volcano_plot(
     ].copy()
     labeled = labeled.assign(abs_log2fc=frame["log2FoldChange"].abs())
     labeled = labeled.sort_values(["neg_log10_p", "abs_log2fc"], ascending=[False, False])
-    labeled_genes = set(labeled["gene_label"].astype(str).str.upper().head(30))
+    labeled_genes = set(labeled["gene_label"].astype(str).str.upper().head(14))
 
     net = Network(
-        height="760px",
+        height="700px",
         width="100%",
         bgcolor="#ffffff",
         font_color="#0f172a",
@@ -390,29 +397,29 @@ def build_volcano_plot(
         add_tick(f"y_tick_{index}", zero_x, tick_y, orientation="y")
         add_text(f"y_tick_label_{index}", f"{tick:.2g}", zero_x - 34, tick_y, size=13)
 
-    add_text("x_axis_label", "log2 Fold Change", 0, canvas_bottom + 58, size=17, color="#0f172a")
-    add_text("y_axis_label", "-log10(p-value)", canvas_left - 55, scale_y(y_max / 2), size=17, color="#0f172a")
+    add_text("x_axis_label", "log2 Fold Change", 0, canvas_bottom + 52, size=17, color="#0f172a")
+    add_text("y_axis_label", "-log10(p-value)", canvas_left - 42, scale_y(y_max / 2), size=16, color="#0f172a")
     add_text(
         "positive_threshold_label",
-        f"log2FC >= {float(log2fc_threshold):.4g}",
-        positive_threshold_x + 62,
-        canvas_top + 34,
+        f"log2FC > {float(log2fc_threshold):.4g}",
+        positive_threshold_x + 58,
+        canvas_top + 28,
         size=14,
         color="#475569",
     )
     add_text(
         "negative_threshold_label",
-        f"log2FC <= -{float(log2fc_threshold):.4g}",
-        negative_threshold_x - 68,
-        canvas_top + 34,
+        f"log2FC < -{float(log2fc_threshold):.4g}",
+        negative_threshold_x - 64,
+        canvas_top + 28,
         size=14,
         color="#475569",
     )
     add_text(
         "pvalue_threshold_label",
-        f"p <= {float(pvalue_threshold):.4g}",
-        canvas_right - 64,
-        threshold_y - 18,
+        f"padj < {float(pvalue_threshold):.4g}",
+        canvas_right - 60,
+        threshold_y - 16,
         size=14,
         color="#475569",
     )
@@ -425,11 +432,13 @@ def build_volcano_plot(
         pvalue = float(row["pvalue"])
         is_labeled = gene_label.upper() in labeled_genes
         label = gene_label if is_labeled else " "
-        size = 9 if direction == "neutral" else 14
+        size = 5 if direction == "neutral" else 9
         if is_labeled:
-            size = 18
+            size = 11
+        padj = row.get("padj")
+        padj_text = f"; padj: {float(padj):.4g}" if pd.notna(padj) else ""
         title = (
-            f"{escape(gene_label)}; log2FoldChange: {log2fc:.4g}; p-value: {pvalue:.4g}; -log10(p): {neg_log10_p:.4g}; class: {escape(direction)}"
+            f"{escape(gene_label)}; log2FoldChange: {log2fc:.4g}; p-value: {pvalue:.4g}{padj_text}; -log10(p): {neg_log10_p:.4g}; class: {escape(direction)}"
         )
         net.add_node(
             f"gene_{index}",
@@ -449,7 +458,7 @@ def build_volcano_plot(
                     "border": "#0f172a",
                 },
             },
-            font={"size": 16 if is_labeled else 0, "vadjust": -18},
+            font={"size": 14 if is_labeled else 0, "vadjust": -16, "strokeWidth": 4, "strokeColor": "#ffffff"},
             borderWidth=2 if is_labeled else 0,
         )
 
@@ -483,23 +492,19 @@ def build_volcano_plot(
     legend = f"""
 <div class="volcano-overlay">
   <div class="volcano-title">Differential Expression Volcano Plot</div>
-  <div class="volcano-axis volcano-x">log2 Fold Change</div>
-  <div class="volcano-axis volcano-y">-log10(p-value)</div>
   <div class="volcano-legend">
     <span><i style="background:{colors['up']}"></i>Up ({direction_counts['up']})</span>
     <span><i style="background:{colors['down']}"></i>Down ({direction_counts['down']})</span>
-    <span><i style="background:{colors['neutral']}"></i>Neutral ({direction_counts['neutral']})</span>
+    <span><i style="background:{colors['neutral']}"></i>Below threshold ({direction_counts['neutral']})</span>
   </div>
-  <div class="volcano-thresholds">p <= {float(pvalue_threshold):.4g}; |log2FC| >= {float(log2fc_threshold):.4g}</div>
+  <div class="volcano-thresholds">padj < {float(pvalue_threshold):.4g}; |log2FC| > {float(log2fc_threshold):.4g}</div>
 </div>
 <style>
-  body {{ margin: 0; font-family: Arial, sans-serif; background: #ffffff; }}
-  #mynetwork {{ height: 760px !important; border: 0 !important; }}
+  html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; font-family: Arial, sans-serif; background: #ffffff; }}
+  #mynetwork {{ height: 100vh !important; border: 0 !important; background: #ffffff !important; }}
+  .vis-tooltip {{ border: 1px solid #dbe4ec !important; border-radius: 8px !important; box-shadow: 0 12px 32px rgba(15, 23, 42, .16) !important; font-family: Arial, sans-serif !important; font-size: 12px !important; }}
   .volcano-overlay {{ pointer-events: none; position: fixed; inset: 0; color: #0f172a; }}
   .volcano-title {{ position: absolute; top: 14px; left: 22px; font-size: 18px; font-weight: 700; }}
-  .volcano-axis {{ position: absolute; font-size: 13px; color: #334155; }}
-  .volcano-x {{ left: 50%; bottom: 18px; transform: translateX(-50%); }}
-  .volcano-y {{ top: 50%; left: -26px; transform: rotate(-90deg) translateX(-50%); transform-origin: left top; }}
   .volcano-legend {{ position: absolute; right: 18px; top: 16px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; max-width: 60%; font-size: 12px; }}
   .volcano-legend span {{ display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,.88); border: 1px solid #e2e8f0; border-radius: 999px; padding: 5px 8px; }}
   .volcano-legend i {{ width: 10px; height: 10px; border-radius: 999px; display: inline-block; }}

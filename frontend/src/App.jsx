@@ -62,6 +62,49 @@ function formatGeneList(value) {
   return Array.isArray(value) && value.length ? value.map((gene) => String(gene)).join(', ') : '-'
 }
 
+function referenceMetaParts(row) {
+  return [
+    row.authors,
+    row.journal,
+    row.source,
+    row.year,
+    row.pmid ? `PMID ${row.pmid}` : '',
+    row.doi ? `DOI ${row.doi}` : '',
+  ].filter(Boolean)
+}
+
+function isWebUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value.trim())
+}
+
+function LiteratureReference({ row, index }) {
+  const metaParts = referenceMetaParts(row)
+  const title = row.title || row.citation || row.reference || 'Untitled reference'
+  const url = typeof row.url === 'string' ? row.url.trim() : ''
+
+  return (
+    <article className="reference-card">
+      <div className="reference-index">{index + 1}</div>
+      <div className="reference-content">
+        <strong>{title}</strong>
+        {metaParts.length > 0 && (
+          <div className="reference-meta">
+            {metaParts.map((part, partIndex) => (
+              <span key={`${part}-${partIndex}`}>{part}</span>
+            ))}
+          </div>
+        )}
+        {url && (
+          isWebUrl(url)
+            ? <a className="reference-link" href={url} target="_blank" rel="noreferrer">{url}</a>
+            : <span className="reference-link reference-link-muted">{url}</span>
+        )}
+        {row.note ? <p>{row.note}</p> : null}
+      </div>
+    </article>
+  )
+}
+
 function csvCell(value) {
   if (value === null || value === undefined) return ''
   const text = Array.isArray(value)
@@ -333,6 +376,41 @@ function parseMarkdownBlocks(content) {
   return blocks
 }
 
+function normalizeSectionTitle(value) {
+  return String(value || '')
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/\*\*/g, '')
+    .replace(/:$/, '')
+    .trim()
+    .toLowerCase()
+}
+
+function answerForDisplay(message) {
+  const content = String(message.content || '')
+  const arm = String(message.meta?.analysis_arm || '').trim().toLowerCase()
+  if (!['srp', 'deg_analysis', 'pathway', 'l1000cds2', 'druggability'].includes(arm)) return content
+
+  const lines = content.replace(/\r\n/g, '\n').split('\n')
+  const wanted = new Set(['interpretation', 'follow-up', 'follow up', 'suggested follow-up', 'suggested follow up'])
+  const sections = []
+  let current = null
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    const headingMatch = trimmed.match(/^(?:#{1,6}\s+|\*\*)([^*#].*?)(?:\*\*)?:?\s*$/)
+    if (headingMatch) {
+      const title = normalizeSectionTitle(headingMatch[1])
+      current = wanted.has(title) ? [line] : null
+      if (current) sections.push(current)
+      continue
+    }
+    if (current) current.push(line)
+  }
+
+  const filtered = sections.map((section) => section.join('\n').trim()).filter(Boolean).join('\n\n')
+  return filtered || content
+}
+
 function MarkdownContent({ content }) {
   const blocks = useMemo(() => parseMarkdownBlocks(content), [content])
 
@@ -406,6 +484,9 @@ function MarkdownContent({ content }) {
 }
 
 function MessageBubble({ message }) {
+  const displayedContent = answerForDisplay(message)
+  const showTechnicalOutput = message.role === 'assistant' && message.meta && message.meta.analysis_arm !== 'hypothesis'
+
   return (
     <article className={`message ${message.role} ${message.pending ? 'pending' : ''}`}>
       <div className="message-meta-row">
@@ -413,8 +494,8 @@ function MessageBubble({ message }) {
         {message.created_at && <div className="message-time">{formatTime(message.created_at)}</div>}
       </div>
       <div className="message-content">
-        <MarkdownContent content={message.content} />
-        {message.role === 'assistant' && message.meta ? <TechnicalOutput meta={message.meta} /> : null}
+        <MarkdownContent content={displayedContent} />
+        {showTechnicalOutput ? <TechnicalOutput meta={message.meta} /> : null}
       </div>
     </article>
   )
@@ -449,9 +530,18 @@ function ArtifactPreview({ label, path, mode }) {
   if (!path) return null
   const src = buildAssetUrl(path)
   const downloadSrc = buildAssetUrl(path, { download: true })
+  const artifactKind = label.toLowerCase().includes('network')
+    ? 'network'
+    : label.toLowerCase().includes('volcano')
+      ? 'volcano'
+      : label.toLowerCase().includes('pdb') || label.toLowerCase().includes('protein')
+        ? 'protein'
+        : 'generic'
+  const blockClassName = `artifact-block artifact-${artifactKind}`
+  const frameClassName = `artifact-frame artifact-frame-${artifactKind}`
 
   return (
-    <div className="artifact-block">
+    <div className={blockClassName}>
       <div className="artifact-head">
         <div>
           <div className="artifact-label">{label}</div>
@@ -463,7 +553,7 @@ function ArtifactPreview({ label, path, mode }) {
         </div>
       </div>
       {mode === 'html' ? (
-        <iframe className="artifact-frame" src={src} title={label} />
+        <iframe className={frameClassName} src={src} title={label} />
       ) : (
         <img className="artifact-image" src={src} alt={label} loading="lazy" />
       )}
@@ -506,6 +596,21 @@ function TechnicalOutput({ meta }) {
     : isDegTurn && Array.isArray(meta.deg_analysis?.rows)
       ? meta.deg_analysis.rows
       : []
+  const degGeneCount = isDegTurn && Array.isArray(meta.deg_genes)
+    ? meta.deg_genes.length
+    : isDegTurn && Array.isArray(meta.deg_analysis?.genes)
+      ? meta.deg_analysis.genes.length
+      : degDownloadRows.length
+  const degThresholdedCount = Number.isFinite(Number(meta.deg_analysis?.thresholded_gene_count))
+    ? Number(meta.deg_analysis.thresholded_gene_count)
+    : degGeneCount
+  const degAllCount = Number.isFinite(Number(meta.deg_analysis?.all_gene_count))
+    ? Number(meta.deg_analysis.all_gene_count)
+    : Array.isArray(meta.deg_analysis?.all_rows)
+      ? meta.deg_analysis.all_rows.length
+      : ''
+  const degLog2Fold = meta.deg_analysis?.log2fold ?? meta.log2fold
+  const degPadj = meta.deg_analysis?.padj ?? meta.padj
   const enrichrLibs = isPathwayTurn && meta.enrichr && typeof meta.enrichr === 'object' && meta.enrichr.libraries && typeof meta.enrichr.libraries === 'object'
     ? meta.enrichr.libraries
     : {}
@@ -517,10 +622,16 @@ function TechnicalOutput({ meta }) {
   const hypothesis = isHypothesisTurn && meta.hypothesis_result && typeof meta.hypothesis_result === 'object' ? meta.hypothesis_result : null
   const druggability = analysisArm === 'druggability' && meta.druggability_result && typeof meta.druggability_result === 'object' ? meta.druggability_result : null
   const pdbVisualization = analysisArm === 'pdb_visualizer' && meta.pdb_visualization_result && typeof meta.pdb_visualization_result === 'object' ? meta.pdb_visualization_result : null
-  const rankedPapers = isLiteratureTurn && Array.isArray(meta.ranked_openalex_papers) ? meta.ranked_openalex_papers.slice(0, 5) : []
-  const scannedPapers = isLiteratureTurn && Array.isArray(meta.openalex_papers) ? meta.openalex_papers.slice(0, 5) : []
-  const literaturePoints = isLiteratureTurn && Array.isArray(meta.literature_key_points) ? meta.literature_key_points.slice(0, 5) : []
-  const literatureReferences = isLiteratureTurn && Array.isArray(meta.literature_references) ? meta.literature_references.slice(0, 8) : []
+  const usesRetrievedLiterature = isLiteratureTurn && analysisArm !== 'research_literature'
+  const rankedPapers = usesRetrievedLiterature && Array.isArray(meta.ranked_openalex_papers) ? meta.ranked_openalex_papers.slice(0, 5) : []
+  const scannedPapers = usesRetrievedLiterature && Array.isArray(meta.openalex_papers) ? meta.openalex_papers.slice(0, 5) : []
+  const literatureReferences = isLiteratureTurn && Array.isArray(meta.literature_references) ? meta.literature_references : []
+  const literatureStats = [
+    { label: 'Scanned', value: usesRetrievedLiterature && Array.isArray(meta.openalex_papers) ? meta.openalex_papers.length : 0 },
+    { label: 'Ranked', value: usesRetrievedLiterature && Array.isArray(meta.ranked_openalex_papers) ? meta.ranked_openalex_papers.length : 0 },
+    { label: 'Key points', value: Array.isArray(meta.literature_key_points) ? meta.literature_key_points.length : 0 },
+    { label: 'References', value: Array.isArray(meta.literature_references) ? meta.literature_references.length : 0 },
+  ].filter((item) => item.value > 0)
   const network = isNetworkTurn && meta.network && typeof meta.network === 'object' ? meta.network : null
   const topDegree = Array.isArray(network?.top_degree) ? network.top_degree.slice(0, 10) : []
   const pyvisHtmlPath = isVisualTurn && typeof meta.pyvis_html_path === 'string' ? meta.pyvis_html_path : ''
@@ -581,11 +692,9 @@ function TechnicalOutput({ meta }) {
   const hasLiterature = Boolean(
     rankedPapers.length > 0
     || scannedPapers.length > 0
-    || literaturePoints.length > 0
-    || literatureReferences.length > 0
-    || meta.literature_summary,
+    || literatureReferences.length > 0,
   )
-  const hasDeg = degUpRows.length > 0 || degDownRows.length > 0
+  const hasDeg = isDegTurn && Boolean(meta.deg_analysis) || degUpRows.length > 0 || degDownRows.length > 0
   const hasPathway = Object.values(enrichrLibs).some((terms) => Array.isArray(terms) && terms.length > 0)
   const hasRwr = rwrRows.length > 0
   const hasL1000 = Boolean(l1000 && (Array.isArray(l1000.top_drugs) || l1000.message))
@@ -754,39 +863,35 @@ function TechnicalOutput({ meta }) {
 
         {hasLiterature && (
           <TechnicalSection
-            title="Literature results"
-            subtitle={meta.disease_name ? `Context: ${meta.disease_name}` : 'Evidence gathered from literature retrieval.'}
+            title="Literature evidence"
+            subtitle={meta.disease_name ? `Source metadata for ${meta.disease_name}.` : 'Source metadata used for the literature answer.'}
           >
-            {meta.literature_summary ? <p>{meta.literature_summary}</p> : null}
-
-            {literaturePoints.length > 0 && (
-              <div className="bullet-panel">
-                <div className="trace-label">Key points</div>
-                <ul>
-                  {literaturePoints.map((row, index) => (
-                    <li key={`lit-point-${index}`}>
-                      {row.point || '-'}
-                      {Array.isArray(row.paper_ids) && row.paper_ids.length > 0 ? ` (${row.paper_ids.join(', ')})` : ''}
-                    </li>
-                  ))}
-                </ul>
+            {literatureStats.length > 0 && (
+              <div className="summary-pill-grid">
+                {literatureStats.map((item) => (
+                  <div className="summary-pill" key={`lit-stat-${item.label}`}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
               </div>
             )}
 
             {rankedPapers.length > 0 && (
               <div className="technical-table">
-                <div className="technical-row technical-head technical-row-lit">
+                <div className="trace-label">Top ranked papers</div>
+                <div className="technical-row technical-head technical-row-lit-clean">
                   <span>Title</span>
                   <span>Year</span>
                   <span>Relevance</span>
-                  <span>Reason</span>
+                  <span>Source</span>
                 </div>
                 {rankedPapers.map((paper, index) => (
-                  <div className="technical-row technical-row-lit" key={`${paper.title || 'paper'}-${index}`}>
+                  <div className="technical-row technical-row-lit-clean" key={`${paper.title || 'paper'}-${index}`}>
                     <span>{paper.title || '-'}</span>
                     <span>{formatValue(paper.year)}</span>
                     <span>{formatNumber(paper.relevance)}</span>
-                    <span>{paper.reason || '-'}</span>
+                    <span>{paper.source || paper.journal || '-'}</span>
                   </div>
                 ))}
               </div>
@@ -810,14 +915,16 @@ function TechnicalOutput({ meta }) {
             )}
 
             {literatureReferences.length > 0 && (
-              <div className="technical-table">
-                <div className="trace-label">References</div>
-                {literatureReferences.map((row, index) => (
-                  <div className="reference-row" key={`${row.paper_id || 'ref'}-${index}`}>
-                    <strong>{row.title || 'Untitled reference'}</strong>
-                    <span>{[row.authors, row.journal, row.source, row.year, row.pmid ? `PMID ${row.pmid}` : '', row.doi ? `DOI ${row.doi}` : '', row.url].filter(Boolean).join(' | ')}</span>
-                    {row.note ? <span>{row.note}</span> : null}
+              <div className="reference-list">
+                <div className="reference-list-head">
+                  <div>
+                    <div className="trace-label">References</div>
+                    <p>All references returned by the literature tool.</p>
                   </div>
+                  <span>{literatureReferences.length}</span>
+                </div>
+                {literatureReferences.map((row, index) => (
+                  <LiteratureReference row={row} index={index} key={`${row.paper_id || row.title || 'ref'}-${index}`} />
                 ))}
               </div>
             )}
@@ -825,7 +932,23 @@ function TechnicalOutput({ meta }) {
         )}
 
         {hasDeg && (
-          <TechnicalSection title="Differential expression" subtitle="Top DEG rows from the current comparison.">
+          <TechnicalSection title="Differential expression" subtitle="Thresholded DEG rows from the current comparison.">
+            <div className="summary-pill-grid">
+              <div className="summary-pill">
+                <span>DEG genes</span>
+                <strong>{degThresholdedCount}</strong>
+              </div>
+              <div className="summary-pill">
+                <span>Thresholds</span>
+                <strong>{`|log2FC| > ${formatNumber(degLog2Fold)} | padj < ${formatNumber(degPadj)}`}</strong>
+              </div>
+              {degAllCount !== '' && (
+                <div className="summary-pill">
+                  <span>Rows available for volcano</span>
+                  <strong>{degAllCount}</strong>
+                </div>
+              )}
+            </div>
             {degUpRows.length > 0 && (
               <div className="technical-table">
                 <h4>Top up-regulated genes</h4>
@@ -912,6 +1035,7 @@ function TechnicalOutput({ meta }) {
               <div className="technical-table">
                 <div className="technical-row technical-head technical-row-drug">
                   <span>Drug</span>
+                  <span>Pert ID</span>
                   <span>Rank</span>
                   <span>Score</span>
                   <span>Signatures</span>
@@ -920,6 +1044,7 @@ function TechnicalOutput({ meta }) {
                 {l1000.top_drugs.slice(0, 10).map((row, index) => (
                   <div className="technical-row technical-row-drug" key={`${row.name || 'drug'}-${index}`}>
                     <span>{row.name || '-'}</span>
+                    <span>{row.pert_id || '-'}</span>
                     <span>{formatValue(row.best_rank)}</span>
                     <span>{formatNumber(row.best_score)}</span>
                     <span>{formatValue(row.signature_count)}</span>
@@ -1091,6 +1216,10 @@ function TechnicalOutput({ meta }) {
                         experiment_design: item.experiment_design,
                         expected_observation: item.expected_observation,
                         readouts: item.readouts,
+                        controls: item.controls,
+                        interpretation: item.interpretation,
+                        key_assumptions: item.key_assumptions,
+                        caveats: item.caveats,
                         existing_evidence: item.existing_evidence,
                         novelty_assessment: item.novelty_assessment,
                         supporting_reference_ids: item.supporting_reference_ids,

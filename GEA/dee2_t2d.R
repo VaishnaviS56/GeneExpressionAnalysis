@@ -369,7 +369,6 @@ fold.cutoff=log2fold
 df<-zz[which(((zz$log2FoldChange>fold.cutoff) | 
                 (zz$log2FoldChange<(fold.cutoff*-1))) & (zz$padj<pval)),]
 
-write.csv(df[,c("Ensembl","hgnc_symbol","entrezgene_id", "entrezgene_accession",
+write.csv(zz[,c("Ensembl","hgnc_symbol","entrezgene_id", "entrezgene_accession",
                 "external_gene_name", "description","log2FoldChange","pvalue",
                 "padj")], file="DEG_T2D_LFC1.csv", row.names=FALSE)
-

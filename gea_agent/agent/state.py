@@ -61,6 +61,7 @@ class AgentState(TypedDict, total=False):
     openalex_genes: list[str]
     ranked_openalex_papers: list[dict[str, Any]]
     literature_key_points: list[dict[str, Any]]
+    candidate_gene_evidence: list[dict[str, Any]]
     literature_references: list[dict[str, Any]]
     literature_summary: str
     literature_source_status: dict[str, Any]

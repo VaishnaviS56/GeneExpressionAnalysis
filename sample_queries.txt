@@ -1,0 +1,24 @@
+1. what options do you have to perform gene expression analysis and identify differentially expressed genes
+2. what is the SRP id SRP033351 experiment about?
+3. identify differentially expressed genes from SRP id SRP033351 with control as "Untreated" and test as "Dexamethasone"
+3a. Generate a volcano plot for the differentially expressed genes
+4. List the differentially up-regulated genes
+5. perform pathway enrichment using the top 300 downregulated genes
+6. Display Cytokine-cytokine receptor interaction pathway
+7a. from online research, mutations to which of these genes are associated with inhaled corticosteroid response and short-acting bronchodilator response in context of asthma: "ALOX15B", "ZBTB16", "ENSG00000250978", "ANGPTL7", "ENSG00000277196", "STEAP4", "LINC02997", "LGI3", "FAM107A", "SPARCL1", "KLF15", "TSPAN8", "TLDC2", "SLC16A12", "RASL11B", "FKBP5", "MARCHF10", "ENSG00000273259", "SAMHD1", "CIDEC", "GPX3", "ITGA10", "ADRA1B", "DLL4", "INHBB", "LINC00702", "SYN2", "TSC22D3", "CACNB2", "MAOA", "PLCXD3", "MT1X", "C7", "LEP", "PER1", "RGCC", "MYH13", "GRIK1-AS1", "ALPK3", "GLUL", "RTL3", "DUSP1", "TIMP4", "CCDC69", "KCNK6", "B3GALT2", "LINC02551", "PPP1R14A", "MOB3B", "RAPGEF5", "CRISPLD2"
+7b. from online research, mutations to which of these genes are associated with inhaled corticosteroid response and short-acting bronchodilator response in context of asthma:C7, CCDC69, DUSP1, FKBP5, GPX3, KLF15, MAOA, SAMHD1, SERPINA3, SPARCL1, C13orf15, TSC22D3, CRISPLD2, PER1, KCTD12, ERRFI1, STEAP4
+7c. Based on literature and genome wide association studies, identify the genes among the top 75 upregulated genes, for which mutations are associated with inhaled corticosteroid response and short-acting bronchodilator response.
+8. Suggest and design the downstream experiments required to validate the association of CRISPLD2 with asthma
+9. is there any evidence regarding "Genetic variants in CRISPLD2 are associated with asthma susceptibility, severity, or response to corticosteroid treatment"
+9a. is there any existing evidence regarding: Genetic Variants in CRISPLD2 are Associated with Asthma Susceptibility or Phenotype in Human Cohorts
+10. perform RWR using the seed genes: CCR1, TGFB2, TSLP, TNFSF15, GDF15, IL34, LIF, TNFRSF11B, NGF, GDF5, INHBE, TNFSF13B, CXCL12, ACVR1C, CCL8, ACKR4, TNFSF9, IL12A
+10a. Consider the genes from Cytokine-cytokine receptor interaction pathway as seed genes and perform random walk with restart to identify other important genes in the protein-protein interaction network
+10b. Display the important genes identified from RWR and their interactions with the seed genes in a consolidated network view
+11. what are the diseases associated with CRISPLD2
+12. what cellular components are associated with CRISPLD2?
+13. Consider the differential gene expression profile of A549 and identify the drugs with complimentary differential gene expression profile from the L1000CDS portal.
+14. Summarize the details of drug BRD-K60640630 from PubChem
+15. Display the CRISPLD2 protein structure in PDB viewer
+16. Analyse and comment on the druggability for CRISPLD2 protein
+
+ALOX15B, ZBTB16, ENSG00000250978, ANGPTL7, ENSG00000277196, STEAP4, LINC02997, LGI3, FAM107A, SPARCL1, KLF15, TSPAN8, TLDC2, SLC16A12, RASL11B, FKBP5, MARCHF10, ENSG00000273259, SAMHD1, CIDEC

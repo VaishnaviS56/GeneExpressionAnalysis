@@ -20,16 +20,8 @@ _DEG_COLUMNS = [
     "description",
     "log2FoldChange",
     "pvalue",
+    "padj",
     "pdj",
-]
-
-_SAVED_DEG_COLUMNS = [
-    "hgnc_symbol",
-    "entrezgene_id",
-    "entrezgene_accession",
-    "description",
-    "log2FoldChange",
-    "pvalue",
 ]
 
 _DEG_NUMERIC_COLUMNS = {"log2FoldChange"}
@@ -97,14 +89,6 @@ def _format_deg_numeric_columns(row: dict[str, str]) -> dict[str, str]:
     return formatted
 
 
-def _write_clean_deg_csv(csv_path: Path, rows: list[dict[str, str]]) -> None:
-    with csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=_SAVED_DEG_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row.get(column, "") for column in _SAVED_DEG_COLUMNS})
-
-
 def _gene_label(row: dict[str, str]) -> str:
     for key in ("hgnc_symbol", "external_gene_name", "Ensembl", "entrezgene_accession"):
         value = row.get(key, "").strip()
@@ -135,8 +119,6 @@ def _read_deg_csv(csv_path: Path) -> dict[str, Any]:
             label = _gene_label(row)
             if label and label not in genes:
                 genes.append(label)
-
-    _write_clean_deg_csv(csv_path, rows)
 
     return {
         "status": "ok",
@@ -287,9 +269,9 @@ def run_deg_r_analysis(
     result = _read_deg_csv(output_path)
     result["log2fold"] = float(log2fold)
     result["padj"] = float(padj)
-    result["thresholds_applied"] = True
+    result["thresholds_applied"] = False
     result["message"] = (
         str(result.get("message") or "").strip()
-        + " Requested log2fold/padj thresholds were applied in Python after the R script completed because the script itself hardcodes those values."
+        + " Full DEG rows were loaded from the R output; requested log2fold/padj thresholds are applied by Python consumers."
     ).strip()
     return result

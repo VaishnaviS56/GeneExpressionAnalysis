@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote_plus
 
 from gea_agent.tools.extract_genes import extract_genes_from_text
 from gea_agent.tools.llm import get_llm, parse_json_object
@@ -168,32 +167,71 @@ def _extract_references_from_text(raw: str) -> list[dict[str, Any]]:
 
 
 def _fallback_reference_resources(query: str) -> list[dict[str, Any]]:
-    encoded = quote_plus(query)
     return [
         {
             "paper_id": 1,
-            "source": "PubMed search",
-            "title": f"PubMed literature search for: {query}",
-            "url": f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded}",
-            "note": "Fallback verification resource because the LLM response did not return specific references.",
-        },
-        {
-            "paper_id": 2,
-            "source": "OpenAlex search",
-            "title": f"OpenAlex literature search for: {query}",
-            "url": f"https://openalex.org/works?page=1&filter=title_and_abstract.search:{encoded}",
-            "note": "Fallback verification resource because the LLM response did not return specific references.",
+            "source": "Reference note",
+            "title": f"No specific bibliographic references were generated for: {query}",
+            "note": "The research_literature tool is LLM-only and did not perform live PubMed, OpenAlex, or Google Scholar retrieval.",
         },
     ]
 
 
-def _parse_literature_response(raw: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], str]:
+def _coerce_candidate_gene_evidence(value: Any, candidate_genes: list[str]) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+
+    allowed = set(candidate_genes)
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        gene = _clean_text(row.get("gene")).upper()
+        if not gene or gene in seen:
+            continue
+        if allowed and gene not in allowed:
+            continue
+        status = _clean_text(row.get("status") or row.get("evidence_status")).lower()
+        if status not in {"supported", "plausible_indirect", "uncertain", "no_known_support"}:
+            status = "uncertain"
+        rows.append(
+            {
+                "gene": gene,
+                "status": status,
+                "phenotypes": [
+                    _clean_text(value)
+                    for value in row.get("phenotypes", [])
+                    if _clean_text(value)
+                ]
+                if isinstance(row.get("phenotypes"), list)
+                else [],
+                "evidence": _clean_text(row.get("evidence") or row.get("rationale")),
+                "paper_ids": row.get("paper_ids") if isinstance(row.get("paper_ids"), list) else [],
+            }
+        )
+        seen.add(gene)
+
+    if allowed:
+        order = {gene: index for index, gene in enumerate(candidate_genes)}
+        rows.sort(key=lambda item: order.get(str(item.get("gene") or ""), len(order)))
+    return rows
+
+
+def _parse_literature_response(
+    raw: str,
+    candidate_genes: list[str] | None = None,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], str]:
     data = parse_json_object(raw)
     if not data:
-        return str(raw or "").strip(), _extract_references_from_text(raw), [], "text_fallback"
+        return str(raw or "").strip(), _extract_references_from_text(raw), [], [], "text_fallback"
 
     answer = str(data.get("answer") or data.get("summary") or "").strip()
     references = _coerce_references(data.get("references") or data.get("literature_references"))
+    candidate_gene_evidence = _coerce_candidate_gene_evidence(
+        data.get("candidate_gene_evidence") or data.get("gene_evidence"),
+        candidate_genes or [],
+    )
     key_points: list[dict[str, Any]] = []
     raw_points = data.get("key_points") or data.get("literature_key_points")
     if isinstance(raw_points, list):
@@ -210,7 +248,7 @@ def _parse_literature_response(raw: str) -> tuple[str, list[dict[str, Any]], lis
 
     if not answer:
         answer = str(raw or "").strip()
-    return answer, references, key_points, "json"
+    return answer, references, key_points, candidate_gene_evidence, "json"
 
 
 def run_publication_research_assistant(
@@ -239,40 +277,24 @@ def run_publication_research_assistant(
         normalized_genes = _normalize_genes(extract_genes_from_text(query, mode="strict"))
 
     resolved_disease = str(disease_name or "").strip()
-    prompt_context: list[str] = []
-    if resolved_disease:
-        prompt_context.append(f"Disease context: {resolved_disease}")
-    if normalized_genes:
-        prompt_context.append("Genes mentioned or inferred: " + ", ".join(normalized_genes[:20]))
-    if top_n:
-        prompt_context.append(f"Requested depth hint: top_n={int(top_n)}")
-
+    genes_text = ", ".join(normalized_genes) if normalized_genes else "None provided"
     prompt = (
-        "You are a biomedical research-literature assistant. "
-        "Emulate the breadth and structure of a strong ChatGPT literature answer: mentally survey major review articles, primary studies, "
-        "PubMed-indexed biomedical literature, clinical/omics studies, mechanistic papers, and disease/gene-specific evidence that may be relevant. "
-        "Prioritize peer-reviewed biomedical sources, systematic reviews/meta-analyses when applicable, landmark primary papers, and recent consensus where you know it. "
-        "Synthesize across mechanisms, disease context, genes/pathways, assays, cohorts, therapeutic relevance, limitations, and open questions when relevant. "
-        "You do not have live retrieval in this tool, so do not claim that you searched, verified, or newly retrieved external sources. "
-        "References are model-generated best-effort citations from model knowledge and must be labeled or worded as such when uncertainty matters. "
-        "Do not invent precise DOI/PMID values unless you are confident. Leave DOI/PMID blank if unsure. "
-        "Every response must include references. If exact bibliographic details are uncertain, include the best-known title/topic/authors/year plus a note such as 'bibliographic details should be verified'. "
-        "Return one JSON object only, with no Markdown code fence and no prose outside JSON. "
-        "Use this schema: "
+        "Answer the user query using the supplied genes and include references. "
+        "You are a research assitant that provides a research-style answer to the user query. "
+        "Return one JSON object only with this schema: "
         '{"answer":"Markdown answer ending before references","key_points":[{"point":"concise finding","paper_ids":[1]}],'
         '"references":[{"paper_id":1,"title":"paper or review title","authors":"authors if known","journal":"journal if known","year":"year if known",'
-        '"doi":"doi if confidently known","pmid":"pmid if confidently known","url":"url if confidently known","source":"PubMed/Review/Guideline/etc","note":"why this supports the answer or verification caveat"}]}. '
-        "The answer should be comprehensive and direct, with Markdown section headings when useful. "
-        "Use inline citation markers like [1], [2] in the answer where specific claims depend on references. "
-        "Include at least 5 references for broad biomedical questions when possible; include fewer only if the topic is narrow or evidence is sparse. "
-        "When uncertain, say so clearly.\n\n"
-        + ("\n".join(prompt_context) + "\n\n" if prompt_context else "")
-        + f"User query: {query}"
+        '"doi":"doi if known","pmid":"pmid if known","url":"url if known","source":"source type","note":"short relevance note"}]}. '
+        f"User query: {query}\n"
+        f"Genes: {genes_text}"
     )
+
+    print("[research_literature] LLM prompt:")
+    print(prompt)
 
     response = get_llm().invoke([("user", prompt)])
     raw_answer = _message_content_text(getattr(response, "content", ""))
-    answer, references, key_points, response_format = _parse_literature_response(raw_answer)
+    answer, references, key_points, candidate_gene_evidence, response_format = _parse_literature_response(raw_answer, normalized_genes)
     if not answer:
         answer = "I could not generate a research-style answer for that query."
     used_fallback_resources = False
@@ -292,12 +314,15 @@ def run_publication_research_assistant(
         "openalex_papers": [],
         "ranked_openalex_papers": [],
         "literature_key_points": key_points,
+        "candidate_gene_evidence": candidate_gene_evidence,
         "literature_references": references,
         "literature_summary": answer,
         "literature_source_status": {
             "mode": "llm_only_unverified",
             "response_format": response_format,
             "reference_count": len(references),
+            "candidate_gene_count": len(normalized_genes),
+            "candidate_gene_evidence_count": len(candidate_gene_evidence),
             "used_fallback_reference_resources": used_fallback_resources,
             "reference_notice": "References are model-generated from LLM knowledge and should be verified against primary databases.",
         },

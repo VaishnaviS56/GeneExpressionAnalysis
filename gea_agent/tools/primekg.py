@@ -133,8 +133,8 @@ Answer:
 )
 
 READ_ONLY_CYPHER_PREFIXES = ("match", "with", "return", "call", "unwind")
-DEFAULT_PRIMEKG_RESULT_LIMIT = 500
-DEFAULT_PRIMEKG_CANDIDATE_LIMIT = 500
+DEFAULT_PRIMEKG_RESULT_LIMIT = 1000
+DEFAULT_PRIMEKG_CANDIDATE_LIMIT = 1000
 MAX_RERANK_CANDIDATES = 100
 ENTITY_ALIASES = {
     "type 2 diabetes": ["type 2 diabetes", "t2d", "diabetes mellitus noninsulin dependent", "noninsulin-dependent"],
@@ -434,6 +434,12 @@ def _query_target_types(question: str) -> set[str]:
         target_types.add("drug")
     if any(token in lowered for token in ("pathway", "pathways")):
         target_types.add("pathway")
+    if any(token in lowered for token in ("biological process", "biological processes", "biological_process")):
+        target_types.add("biological_process")
+    if any(token in lowered for token in ("molecular function", "molecular functions", "molecular_function")):
+        target_types.add("molecular_function")
+    if any(token in lowered for token in ("cellular component", "cellular components", "cellular_component")):
+        target_types.add("cellular_component")
     if any(token in lowered for token in ("phenotype", "phenotypes", "symptom", "side effect")):
         target_types.add("effect/phenotype")
     return target_types
@@ -458,6 +464,8 @@ def _score_primekg_row(question: str, row: Any, index: int) -> dict[str, Any]:
     target_types = _query_target_types(question)
     score = 0.0
     matched_keywords: list[str] = []
+    matched_relation = False
+    matched_related_type = False
 
     for keyword in keywords:
         if keyword in text:
@@ -473,22 +481,35 @@ def _score_primekg_row(question: str, row: Any, index: int) -> dict[str, Any]:
         if relation:
             for keyword in keywords:
                 if keyword in relation:
-                    score += 1.0
+                    score += 2.5
+                    matched_relation = True
                     break
 
+        related_type = _normalize_entity_text(row.get("related_type") or "")
         if target_types:
-            for key, value in row.items():
-                if "type" not in str(key).lower():
-                    continue
-                normalized_value = _normalize_entity_text(value)
-                if normalized_value in target_types:
-                    score += 2.5
+            if related_type in target_types:
+                score += 3.0
+                matched_related_type = True
+            else:
+                for key, value in row.items():
+                    if "type" not in str(key).lower():
+                        continue
+                    normalized_value = _normalize_entity_text(value)
+                    if normalized_value in target_types:
+                        score += 2.0
+                        matched_related_type = True
+                        break
+
+        if matched_relation and matched_related_type:
+            score += 2.0
 
     score += max(0.0, 0.25 - (index * 0.001))
     return {
         "row": row,
         "score": round(score, 4),
         "matched_keywords": matched_keywords[:8],
+        "matched_relation": matched_relation,
+        "matched_related_type": matched_related_type,
         "index": index,
     }
 
@@ -529,9 +550,10 @@ def _llm_rerank_primekg_rows(question: str, rows: list[Any], top_k: int) -> dict
         "Select the rows that best answer the user's question.\n"
         f"Return JSON only with keys `selected_indices` and `reason`.\n"
         f"Choose at most {top_k} indices, ordered best to worst.\n"
-        "Prefer rows that directly mention the queried entity, requested entity type, and relevant relation.\n"
-        "Pay special attention to `related_type`, `relation`, and `display_relation` when they are present.\n"
-        "Use `display_relation` as the most human-readable relationship label and `related_type` to match the requested entity category.\n\n"
+        "Rank rows by both relationship semantics and entity category.\n"
+        "Prefer rows where `display_relation` or `relation` matches the requested relationship and `related_type` matches the requested entity category.\n"
+        "Use `display_relation` as the primary human-readable relationship label; fall back to `relation` only when `display_relation` is absent.\n"
+        "Use `related_type` as the primary target entity category signal.\n\n"
         f"Question:\n{question}\n\n"
         f"Rows:\n{json.dumps(serialized_rows, ensure_ascii=False)}"
     )
@@ -684,7 +706,6 @@ AND d.type = "disease"
 AND {gene_condition}
 RETURN DISTINCT d.name AS disease, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY disease
-LIMIT 100
 """.strip()
 
     if asks_for_genes or ("gene" in lowered and "disease" in lowered):
@@ -695,7 +716,6 @@ AND g.type = "gene/protein"
 AND {entity_condition}
 RETURN DISTINCT g.name AS gene, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY gene
-LIMIT 100
 """.strip()
 
     if "pathway" in lowered:
@@ -706,7 +726,29 @@ AND p.type = "pathway"
 AND {gene_condition}
 RETURN DISTINCT p.name AS pathway, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY pathway
-LIMIT 100
+""".strip()
+
+    primekg_gene_target_types = (
+        ("biological_process", ("biological process", "biological processes", "biological_process")),
+        ("molecular_function", ("molecular function", "molecular functions", "molecular_function")),
+        ("cellular_component", ("cellular component", "cellular components", "cellular_component")),
+        ("effect/phenotype", ("phenotype", "phenotypes", "symptom", "symptoms")),
+        ("anatomy", ("anatomy", "tissue", "tissues", "organ", "organs")),
+        ("exposure", ("exposure", "exposures")),
+    )
+    for target_type, markers in primekg_gene_target_types:
+        if any(marker in lowered for marker in markers):
+            return f"""
+MATCH (g:Entity)-[r:RELATED_TO]-(m:Entity)
+WHERE g.type = "gene/protein"
+AND m.type = "{target_type}"
+AND {gene_condition}
+RETURN DISTINCT
+    m.name AS related_entity,
+    m.type AS related_type,
+    r.relation AS relation,
+    r.display_relation AS display_relation
+ORDER BY related_entity
 """.strip()
 
     if "drug" in lowered and "disease" in lowered:
@@ -717,7 +759,6 @@ AND drug.type = "drug"
 AND {entity_condition}
 RETURN DISTINCT drug.name AS drug, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY drug
-LIMIT 100
 """.strip()
 
     if "drug" in lowered and "gene" in lowered:
@@ -728,7 +769,6 @@ AND g.type = "gene/protein"
 AND {drug_condition}
 RETURN DISTINCT g.name AS gene, r.relation AS relation, r.display_relation AS display_relation
 ORDER BY gene
-LIMIT 100
 """.strip()
 
     return f"""
@@ -740,7 +780,6 @@ RETURN DISTINCT
     r.relation AS relation,
     r.display_relation AS display_relation
 ORDER BY related_type, related_entity
-LIMIT 500
 """.strip()
 
 

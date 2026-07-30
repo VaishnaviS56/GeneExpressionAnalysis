@@ -108,12 +108,13 @@ _QUERY_STOPWORDS = {
     "among",
     "and",
     "are",
-    "asthma",
     "because",
     "between",
     "could",
     "disease",
     "does",
+    "evidence",
+    "existing",
     "following",
     "from",
     "genes",
@@ -127,6 +128,7 @@ _QUERY_STOPWORDS = {
     "not",
     "papers",
     "related",
+    "regarding",
     "results",
     "show",
     "tell",
@@ -251,6 +253,183 @@ def _dedupe_papers(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(merged.values())
 
 
+def _lexical_relevance_score(
+    paper: dict[str, Any],
+    *,
+    user_query: str,
+    disease: str,
+    genes: list[str],
+    evidence_statement: str,
+) -> int:
+    title = _clean_whitespace(paper.get("title")).lower()
+    abstract = _clean_whitespace(paper.get("abstract")).lower()
+    combined = f"{title} {abstract}"
+    score = 0
+
+    for gene in genes:
+        gene_lower = str(gene or "").lower()
+        if gene_lower and gene_lower in title:
+            score += 35
+        elif gene_lower and gene_lower in combined:
+            score += 20
+
+    for disease_term in _disease_terms_for_query(disease, evidence_statement or user_query):
+        term_lower = disease_term.lower()
+        if term_lower in title:
+            score += 25
+        elif term_lower in combined:
+            score += 12
+
+    concept_weights = {
+        "variant": 10,
+        "variants": 10,
+        "polymorphism": 10,
+        "polymorphisms": 10,
+        "snp": 10,
+        "genome-wide association": 14,
+        "gwas": 14,
+        "susceptibility": 10,
+        "risk": 8,
+        "phenotype": 8,
+        "cohort": 8,
+        "associated": 6,
+        "association": 6,
+    }
+    for term, weight in concept_weights.items():
+        if term in title:
+            score += weight * 2
+        elif term in combined:
+            score += weight
+
+    if paper.get("pmid"):
+        score += 4
+    if paper.get("doi"):
+        score += 3
+    if abstract:
+        score += 2
+    return score
+
+
+def _sort_papers_by_lexical_relevance(
+    papers: list[dict[str, Any]],
+    *,
+    user_query: str,
+    disease: str,
+    genes: list[str],
+    evidence_statement: str,
+) -> list[dict[str, Any]]:
+    indexed = list(enumerate(papers))
+    indexed.sort(
+        key=lambda item: (
+            _lexical_relevance_score(
+                item[1],
+                user_query=user_query,
+                disease=disease,
+                genes=genes,
+                evidence_statement=evidence_statement,
+            ),
+            -item[0],
+        ),
+        reverse=True,
+    )
+    return [paper for _, paper in indexed]
+
+
+def _filter_evidence_statement_papers(
+    papers: list[dict[str, Any]],
+    *,
+    user_query: str,
+    disease: str,
+    genes: list[str],
+    evidence_statement: str,
+) -> list[dict[str, Any]]:
+    if not papers or not evidence_statement or not genes:
+        return papers
+
+    disease_terms = _disease_terms_for_query(disease, evidence_statement or user_query)
+    gene_matched: list[dict[str, Any]] = []
+    gene_and_disease_matched: list[dict[str, Any]] = []
+    for paper in papers:
+        title = _clean_whitespace(paper.get("title")).lower()
+        abstract = _clean_whitespace(paper.get("abstract")).lower()
+        combined = f"{title} {abstract}"
+        has_gene = any(str(gene or "").lower() in combined for gene in genes)
+        if not has_gene:
+            continue
+        gene_matched.append(paper)
+        if not disease_terms or any(term.lower() in combined for term in disease_terms):
+            gene_and_disease_matched.append(paper)
+
+    if len(gene_and_disease_matched) >= 2:
+        return gene_and_disease_matched
+    if gene_matched:
+        return gene_matched
+    return papers
+
+
+def _extract_evidence_statement(text: str) -> str:
+    query = _clean_whitespace(text)
+    quoted = re.search(r'"([^"]+)"|\'([^\']+)\'', query)
+    if quoted:
+        return _clean_whitespace(quoted.group(1) or quoted.group(2) or "")
+
+    cleaned = re.sub(
+        r"(?i)^\s*(?:is\s+there\s+(?:any\s+)?(?:existing\s+)?evidence\s*(?:regarding|about|for|that)?|"
+        r"find\s+(?:the\s+)?evidence\s+(?:regarding|about|for|that)?|"
+        r"look\s+for\s+evidence\s+(?:regarding|about|for|that)?|"
+        r"search\s+for\s+evidence\s+(?:regarding|about|for|that)?|"
+        r"show\s+evidence\s+(?:regarding|about|for|that)?|"
+        r"give\s+evidence\s+(?:regarding|about|for|that)?|"
+        r"supporting\s+evidence\s+(?:regarding|about|for|that)?|"
+        r"papers\s+supporting|studies\s+supporting)\s*[:,-]?\s+",
+        "",
+        query,
+    )
+    return _clean_whitespace(cleaned.strip(" .,:;?"))
+
+
+def _pubmed_field_or(values: list[str]) -> str:
+    terms: list[str] = []
+    for value in values:
+        cleaned = _clean_whitespace(value).strip(" .,:;?\"'")
+        if cleaned and cleaned not in terms:
+            terms.append(cleaned)
+    return " OR ".join(f"{term}[Title/Abstract]" for term in terms)
+
+
+def _claim_concept_groups(statement: str) -> list[list[str]]:
+    lowered = statement.lower()
+    groups: list[list[str]] = []
+    if any(marker in lowered for marker in ("variant", "variants", "polymorphism", "snp", "mutation", "genetic")):
+        groups.append(["genetic variants", "variant", "variants", "polymorphism", "polymorphisms", "SNP", "genome-wide association", "GWAS"])
+    if any(marker in lowered for marker in ("susceptibility", "risk", "predisposition", "association", "associated")):
+        groups.append(["susceptibility", "risk", "association", "associated"])
+    if any(marker in lowered for marker in ("phenotype", "phenotypes", "cohort", "cohorts")):
+        groups.append(["phenotype", "phenotypes", "cohort", "cohorts", "population"])
+    if "severity" in lowered or "severe" in lowered:
+        groups.append(["severity", "severe"])
+    if any(marker in lowered for marker in ("corticosteroid", "steroid", "treatment", "response")):
+        groups.append(["corticosteroid", "corticosteroids", "steroid", "treatment response", "response"])
+    return groups
+
+
+def _disease_terms_for_query(disease: str, statement: str) -> list[str]:
+    terms: list[str] = []
+    disease_cleaned = _clean_whitespace(disease)
+    if disease_cleaned:
+        terms.append(disease_cleaned)
+    lowered = f"{disease_cleaned} {statement}".lower()
+    if "asthma" in lowered:
+        terms.extend(["asthma", "bronchial asthma"])
+
+    unique: list[str] = []
+    for term in terms:
+        cleaned = _clean_whitespace(term)
+        if cleaned and cleaned.lower() not in {value.lower() for value in unique}:
+            unique.append(cleaned)
+    return unique
+
+
 def _build_search_queries(
     *,
     user_query: str,
@@ -260,12 +439,24 @@ def _build_search_queries(
     genes = _normalize_genes(genes, limit=24)
     disease = _clean_whitespace(disease)
     user_query = _clean_whitespace(user_query)
-    keywords = _query_keywords(user_query, genes, disease)
+    evidence_statement = _extract_evidence_statement(user_query)
+    query_for_keywords = evidence_statement or user_query
+    disease_terms = _disease_terms_for_query(disease, query_for_keywords)
+    keywords = _query_keywords(query_for_keywords, genes, disease)
+    disease_token_set = {
+        token.lower()
+        for term in disease_terms
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", term)
+    }
+    if disease_token_set:
+        keywords = [keyword for keyword in keywords if keyword.lower() not in disease_token_set]
     keyword_phrase = " ".join(keywords[:4]).strip()
-    disease_context = " ".join(part for part in (disease, keyword_phrase) if part).strip()
+    disease_context = " ".join(part for part in ((disease_terms[0] if disease_terms else disease), keyword_phrase) if part).strip()
     gene_chunks = _chunk_list(genes[:24], chunk_size=5)
 
-    if user_query:
+    if evidence_statement:
+        plain_query = evidence_statement
+    elif user_query:
         plain_query = user_query
     elif disease and genes:
         plain_query = f"{disease} {' '.join(genes[:5])} mechanism biomarker gene expression"
@@ -279,6 +470,71 @@ def _build_search_queries(
     openalex_queries: list[str] = [plain_query]
     scholar_queries: list[str] = [plain_query]
     pubmed_queries: list[str] = []
+
+    if evidence_statement and evidence_statement.lower() != user_query.lower():
+        openalex_queries.insert(0, evidence_statement)
+        scholar_queries.insert(0, evidence_statement)
+
+    if evidence_statement:
+        statement_keywords = _query_keywords(evidence_statement, genes, disease)
+        if disease_token_set:
+            statement_keywords = [keyword for keyword in statement_keywords if keyword.lower() not in disease_token_set]
+        statement_phrase = " ".join(statement_keywords[:6]).strip()
+        gene_text = " ".join(genes[:5])
+        focused_disease = disease_terms[0] if disease_terms else disease
+        focused_parts = [part for part in (gene_text, focused_disease, statement_phrase) if part]
+        if focused_parts:
+            focused_query = " ".join(focused_parts)
+            openalex_queries.append(focused_query)
+            scholar_queries.append(focused_query)
+
+        for gene in genes[:8]:
+            if disease_terms:
+                for disease_term in disease_terms[:2]:
+                    openalex_queries.extend(
+                        [
+                            f"{gene} {disease_term} genetic variants",
+                            f"{gene} {disease_term} susceptibility",
+                            f"{gene} {disease_term} phenotype",
+                            f"{gene} {disease_term} GWAS",
+                        ]
+                    )
+                    scholar_queries.extend(
+                        [
+                            f"{gene} {disease_term} genetic variants",
+                            f"{gene} {disease_term} susceptibility",
+                        ]
+                    )
+            else:
+                openalex_queries.extend(
+                    [
+                        f"{gene} genetic variants disease association",
+                        f"{gene} susceptibility phenotype cohort",
+                    ]
+                )
+
+        if genes:
+            gene_or = _pubmed_field_or(genes[:8])
+            disease_or = _pubmed_field_or(disease_terms[:4])
+            disease_clause = f"({disease_or})" if disease_or else ""
+            base_clauses = [f"({gene_or})"]
+            if disease_clause:
+                base_clauses.append(disease_clause)
+            pubmed_queries.append(" AND ".join(base_clauses))
+
+            for concept_group in _claim_concept_groups(evidence_statement):
+                concept_or = _pubmed_field_or(concept_group)
+                pubmed_queries.append(" AND ".join(base_clauses + [f"({concept_or})"]))
+
+            if disease_clause:
+                variant_or = _pubmed_field_or(["genetic variants", "variant", "variants", "polymorphism", "SNP", "genome-wide association", "GWAS"])
+                phenotype_or = _pubmed_field_or(["susceptibility", "risk", "phenotype", "phenotypes", "cohort", "cohorts"])
+                pubmed_queries.append(" AND ".join(base_clauses + [f"({variant_or})"]))
+                pubmed_queries.append(" AND ".join(base_clauses + [f"({phenotype_or})"]))
+                pubmed_queries.append(" AND ".join(base_clauses + [f"({variant_or})", f"({phenotype_or})"]))
+
+        if statement_phrase:
+            pubmed_queries.append(f"({_pubmed_field_or(statement_keywords[:8])})")
 
     if disease_context:
         openalex_queries.extend(
@@ -815,13 +1071,28 @@ def fetch_openalex_papers_and_genes(
         }
 
     queries = _build_search_queries(user_query=user_query, disease=disease, genes=genes)
+    evidence_statement = _extract_evidence_statement(user_query)
     per_source = max(5, min(int(top_n or 20), 20))
 
     openalex_papers, openalex_status = _search_openalex_many(queries["plain"], top_n=per_source)
     pubmed_papers, pubmed_status = _search_pubmed_many(queries["pubmed"], top_n=per_source)
     scholar_papers, scholar_status = _search_google_scholar_many(queries["scholar"], top_n=max(5, min(per_source, 10)))
 
-    merged_papers = _dedupe_papers(openalex_papers + pubmed_papers + scholar_papers)
+    deduped_papers = _dedupe_papers(openalex_papers + pubmed_papers + scholar_papers)
+    filtered_papers = _filter_evidence_statement_papers(
+        deduped_papers,
+        user_query=user_query,
+        disease=disease,
+        genes=genes,
+        evidence_statement=evidence_statement,
+    )
+    merged_papers = _sort_papers_by_lexical_relevance(
+        filtered_papers,
+        user_query=user_query,
+        disease=disease,
+        genes=genes,
+        evidence_statement=evidence_statement,
+    )
     collected_genes = list(genes)
     for paper in merged_papers:
         for gene in paper.get("genes", []):
@@ -850,6 +1121,7 @@ def fetch_openalex_papers_and_genes(
         "status": "ok" if merged_papers else "no_results",
         "disease": disease,
         "query": queries["plain"][0] if queries["plain"] else "",
+        "evidence_statement": evidence_statement,
         "queries": queries,
         "papers": merged_papers[: max(per_source, 12)],
         "ranked_papers": ranked_papers,

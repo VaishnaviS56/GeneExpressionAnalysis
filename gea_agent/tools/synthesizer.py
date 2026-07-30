@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import networkx as nx
@@ -355,6 +356,7 @@ def _compact_literature(
     key_points: list[dict[str, Any]] | None,
     references: list[dict[str, Any]] | None,
     summary: str | None,
+    candidate_gene_evidence: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     out: dict[str, Any] = {}
 
@@ -368,6 +370,19 @@ def _compact_literature(
                 "paper_ids": row.get("paper_ids"),
             }
             for row in key_points[:6]
+            if isinstance(row, dict)
+        ]
+
+    if isinstance(candidate_gene_evidence, list):
+        out["candidate_gene_evidence"] = [
+            {
+                "gene": row.get("gene"),
+                "status": row.get("status"),
+                "phenotypes": row.get("phenotypes"),
+                "evidence": row.get("evidence"),
+                "paper_ids": row.get("paper_ids"),
+            }
+            for row in candidate_gene_evidence[:30]
             if isinstance(row, dict)
         ]
 
@@ -568,6 +583,23 @@ def _ensure_suggested_followup(answer: str, payload: dict[str, Any]) -> str:
     cleaned = str(answer or "").strip()
     if not cleaned:
         return cleaned
+
+    cleaned = re.sub(
+        r"(?m)^\s*#{1,6}\s+(.+?)\s*#*\s*$",
+        lambda match: f"**{str(match.group(1)).strip().strip('*')}**",
+        cleaned,
+    ).strip()
+
+    followup_heading_pattern = re.compile(
+        r"(?im)^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*"
+        r"(?:optional\s+follow[- ]?ups?|suggested\s+follow[- ]?ups?|recommended\s+follow[- ]?ups?|next\s+steps?)"
+        r"\s*(?:\*\*)?\s*:?\s*$"
+    )
+    if followup_heading_pattern.search(cleaned):
+        cleaned = followup_heading_pattern.sub("**Suggested Follow-Up**", cleaned).strip()
+        cleaned = re.sub(r"(?is)(\*\*Suggested Follow-Up\*\*.*?)(?:\n\s*\*\*Suggested Follow-Up\*\*)+", r"\1", cleaned).strip()
+        return cleaned
+
     if "**suggested follow-up**" in cleaned.lower() or "suggested follow-up" in cleaned.lower():
         return cleaned
     return f"{cleaned}\n\n**Suggested Follow-Up**\n{_suggested_followup(payload)}".strip()
@@ -589,6 +621,7 @@ def synthesize_technical_response(
     literature_key_points: list[dict[str, Any]] | None = None,
     literature_references: list[dict[str, Any]] | None = None,
     literature_summary: str | None = None,
+    candidate_gene_evidence: list[dict[str, Any]] | None = None,
     memory_lookup_result: dict[str, Any] | None = None,
     state_lookup_result: dict[str, Any] | None = None,
     memory_slice_result: dict[str, Any] | None = None,
@@ -633,6 +666,7 @@ def synthesize_technical_response(
             literature_key_points,
             literature_references,
             literature_summary,
+            candidate_gene_evidence,
         )
         payload["rwr"] = _compact_rwr(rwr_genes)
         payload["net"] = {"n": graph.number_of_nodes(), "e": graph.number_of_edges()}
@@ -649,7 +683,9 @@ def synthesize_technical_response(
                     "Return plain text only, not JSON and not markdown code fences. "
                     "Answer the user's question directly in clear, professional technical language. "
                     "Format the response as a polished technical report using Markdown. "
-                    "Use bold section headings such as `**Summary**`, `**Key Findings**`, `**Interpretation**`, `**Evidence**`, and `**References**` when relevant and necessary. Do not repeat the same information under different headings; instead, synthesize and integrate the evidence into a coherent narrative. "
+                    "Use bold section headings such as `**Summary**`, `**Key Findings**`, `**Interpretation**`, `**Evidence**`, and `**References**` when relevant and necessary. "
+                    "Never use ATX/hash headings like `# Summary`, `## Summary`, or `### Summary`; write `**Summary**` instead. "
+                    "Do not repeat the same information under different headings; instead, synthesize and integrate the evidence into a coherent narrative. "
                     "Start with a clear summary, then briefly describe the key points with evidence when available. "
                     "When multiple findings are present, use organized bullets so the answer remains readable while still being thorough. "
                     "Include methods/context, key results, notable genes or terms, interpretation, caveats, and practical next steps when those are supported by the payload. "
@@ -671,10 +707,12 @@ def synthesize_technical_response(
                     "Only mention pathway enrichment, Enrichr, KEGG, Reactome, GO terms, adjusted p-values, or overlapping pathway genes when the active arm is exactly `pathway`; "
                     "for `memory_rwr`, summarize only the RWR/network-prioritization result; do not mention pathway enrichment, Enrichr terms, KEGG/Reactome/GO terms, adjusted p-values, or pathway overlap genes even if those genes were used internally as seeds; "
                     "for `research_literature` and `literature`, always synthesize the literature summary, key points, and references into a polished final answer; do not return raw JSON, raw tool output, or unsynthesized citation lists; "
+                    "When `lit.candidate_gene_evidence` is present, use it as the primary source for candidate-gene screening answers: list supported genes first, distinguish plausible/uncertain/no-known-support statuses, and do not add genes outside that candidate evidence table. "
                     "for `disease`, summarize literature findings first, then relevant network or enrichment context if present. "
                     "For the general, literature, research-literature, or disease-style response, prefer this order when supported by the payload: `**Summary**`, `**Key Findings**`, `**Interpretation**`, and `**References**`. "
                     "The answer may be comprehensive; prioritize completeness, traceability, and scientific usefulness over brevity. "
                     "After completing an analysis, include exactly one short `**Suggested Follow-Up**` section with a concrete next analysis the agent can perform from the available state, such as pathway enrichment, RWR target prioritization, literature support, OpenTargets checks, L1000CDS2 drug matching, PubChem lookup, hypothesis generation, or a supported visualization. "
+                    "Use that exact heading text; do not write `Optional Follow-ups`, `Next Steps`, or another follow-up heading variant. "
                     "Do not suggest unavailable capabilities. "
                     "When literature references are available, place `**Suggested Follow-Up**` after the `**References**` section; otherwise end with `**Suggested Follow-Up**`.",
                 ),

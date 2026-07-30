@@ -514,15 +514,15 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
             )
         if preview:
             st.table(preview)
-    elif analysis_arm != "srp" and isinstance(openalex_papers, list) and openalex_papers:
-        st.subheader("OpenAlex papers")
+    elif analysis_arm not in {"srp", "research_literature"} and isinstance(openalex_papers, list) and openalex_papers:
+        st.subheader("Retrieved literature papers")
         st.caption(f"{len(openalex_papers)} papers scanned for genes.")
         st.table([{"title": paper.get("title"), "year": paper.get("year")} for paper in openalex_papers[:5] if isinstance(paper, dict)])
 
     if analysis_arm != "srp" and isinstance(literature_references, list) and literature_references:
         st.subheader("References")
         preview = []
-        for ref in literature_references[:10]:
+        for ref in literature_references[:40]:
             if not isinstance(ref, dict):
                 continue
             preview.append(
@@ -548,14 +548,14 @@ def _render_technical_tables(meta: dict[str, Any], graph: nx.Graph | None) -> No
         message = deg_analysis.get("message")
         if deg_analysis.get("log2fold") not in (None, "") or deg_analysis.get("padj") not in (None, ""):
             st.caption(
-                f"Used thresholds: log2fold={deg_analysis.get('log2fold', 1.0)}, padj={deg_analysis.get('padj', 0.05)}"
+                f"Used thresholds: |log2FC|>{deg_analysis.get('log2fold', 1.0)}, padj<{deg_analysis.get('padj', 0.05)}"
             )
         if status and status != "ok":
             st.info(str(message or "DEG output is not ready yet."))
         elif isinstance(message, str) and message.strip():
             st.caption(message)
         if isinstance(genes, list) and genes:
-            st.caption(f"{len(genes)} genes detected from the DEG output.")
+            st.caption(f"{len(genes)} genes passed the applied thresholds.")
         up_rows = deg_analysis.get("upregulated_rows")
         down_rows = deg_analysis.get("downregulated_rows")
         if isinstance(up_rows, list) and up_rows:

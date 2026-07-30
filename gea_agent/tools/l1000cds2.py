@@ -183,8 +183,6 @@ def query_l1000cds2(
             "top_signatures": [],
         }
     
-    print(raw)
-
     signatures = _normalize_signatures(raw.get("topMeta"), requested_cell_lines=cells)
     top_drugs = _rank_drugs(signatures, result_limit=result_limit)
     if cells and not signatures:

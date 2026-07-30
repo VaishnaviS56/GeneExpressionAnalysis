@@ -112,29 +112,35 @@ def _fallback_hypothesis_answer(
     scope = hypothesis_goal or "the requested question"
     context_parts = [part for part in [disease_name, ", ".join(genes[:8])] if part]
     lines = [
-        f"Here are LLM-generated hypotheses for {scope}.",
+        "**Hypothesis Goal**",
+        scope,
     ]
     if context_parts:
-        lines.append(f"Context used: {' | '.join(context_parts)}.")
+        lines.extend(["", "**Context Used**", " | ".join(context_parts)])
     lines.extend(
         [
             "",
-            "1. The top candidate gene set may represent a coordinated disease-associated regulatory module.",
-            "Rationale: repeatedly surfaced genes across the current analysis context are more likely to reflect a shared biological process than isolated signals.",
-            "Experiment design: prioritize two to five candidate genes, perturb them in a disease-relevant cell or tissue model, and compare the transcriptional and phenotype response against matched controls.",
-            "Suggested readouts: target-gene expression, pathway-marker expression, protein abundance where feasible, and a phenotype-specific functional endpoint.",
-            "Expected observation: perturbing the true driver genes should shift both pathway markers and the disease-relevant phenotype in a coherent direction.",
-            "Controls and caveats: include non-targeting and positive controls, verify perturbation efficiency, and interpret weak effects cautiously if the model does not capture the disease context.",
+            "**Hypothesis 1: Candidate genes form a coordinated disease-associated regulatory module**",
+            "- **Rationale:** Repeatedly surfaced genes across the current analysis context may reflect a shared biological process rather than isolated signals.",
+            "- **Validation Approach:** Prioritize two to five candidate genes, perturb them in a disease-relevant cell or tissue model, and compare transcriptional and phenotype responses against matched controls.",
+            "- **Expected Observation:** Perturbing true driver genes should shift both pathway markers and the disease-relevant phenotype in a coherent direction.",
+            "- **Readouts:** Target-gene expression; pathway-marker expression; protein abundance where feasible; phenotype-specific functional endpoint.",
+            "- **Controls And Caveats:** Include non-targeting and positive controls, verify perturbation efficiency, and interpret weak effects cautiously if the model does not capture the disease context.",
             "",
-            "2. Directionally consistent genes may point to an upstream pathway state that explains the observed expression pattern.",
-            "Rationale: concordant up- or down-regulation can indicate a common regulator, pathway activation state, or cellular composition shift.",
-            "Experiment design: test whether modulating the suspected upstream pathway changes the candidate-gene signature and downstream phenotype.",
-            "Suggested readouts: pathway activity markers, expression of the candidate genes, and quantitative phenotype measurements.",
-            "Expected observation: pathway modulation should move the candidate-gene signature and phenotype together if the pathway is mechanistically relevant.",
-            "Controls and caveats: separate direct pathway effects from nonspecific stress responses and consider time-course sampling if the directionality is unclear.",
+            "**Hypothesis 2: Directionally consistent genes reflect an upstream pathway state**",
+            "- **Rationale:** Concordant up- or down-regulation can indicate a common regulator, pathway activation state, or cellular composition shift.",
+            "- **Validation Approach:** Test whether modulating the suspected upstream pathway changes the candidate-gene signature and downstream phenotype.",
+            "- **Expected Observation:** Pathway modulation should move the candidate-gene signature and phenotype together if the pathway is mechanistically relevant.",
+            "- **Readouts:** Pathway activity markers; candidate-gene expression; quantitative phenotype measurements.",
+            "- **Controls And Caveats:** Separate direct pathway effects from nonspecific stress responses and consider time-course sampling if directionality is unclear.",
         ]
     )
     return "\n".join(lines).strip()
+
+
+def _format_list(values: list[Any]) -> str:
+    cleaned = [str(value).strip() for value in values if str(value).strip()]
+    return "; ".join(cleaned)
 
 
 def _format_hypothesis_answer(
@@ -146,16 +152,14 @@ def _format_hypothesis_answer(
     overall_summary: str,
 ) -> str:
     lines: list[str] = []
-    lines.append("## Hypotheses")
+    lines.append("**Experimental Hypotheses**")
     if hypothesis_goal:
-        lines.append(f"Hypothesis goal: {hypothesis_goal}")
+        lines.extend(["", "**Hypothesis Goal**", hypothesis_goal])
     context_bits = [part for part in [disease_name, ", ".join(genes[:10])] if part]
     if context_bits:
-        lines.append(f"Context used: {' | '.join(context_bits)}")
+        lines.extend(["", "**Context Used**", " | ".join(context_bits)])
     if overall_summary:
-        lines.append("")
-        lines.append("### Summary")
-        lines.append(overall_summary)
+        lines.extend(["", "**Summary**", overall_summary])
 
     for index, hypothesis in enumerate(hypotheses, start=1):
         if not isinstance(hypothesis, dict):
@@ -171,23 +175,23 @@ def _format_hypothesis_answer(
         assumptions = hypothesis.get("key_assumptions") if isinstance(hypothesis.get("key_assumptions"), list) else []
 
         lines.append("")
-        lines.append(f"### {index}. {title}")
+        lines.append(f"**Hypothesis {index}: {title}**")
         if rationale:
-            lines.append(f"Rationale: {rationale}")
+            lines.append(f"- **Rationale:** {rationale}")
         if experiment:
-            lines.append(f"Experiment design: {experiment}")
+            lines.append(f"- **Validation Approach:** {experiment}")
         if expected:
-            lines.append(f"Expected observation: {expected}")
+            lines.append(f"- **Expected Observation:** {expected}")
         if readouts:
-            lines.append("Suggested readouts: " + ", ".join(str(value).strip() for value in readouts if str(value).strip()))
+            lines.append(f"- **Readouts:** {_format_list(readouts)}")
         if controls:
-            lines.append("Controls: " + ", ".join(str(value).strip() for value in controls if str(value).strip()))
+            lines.append(f"- **Controls:** {_format_list(controls)}")
         if interpretation:
-            lines.append(f"How to interpret it: {interpretation}")
+            lines.append(f"- **Interpretation:** {interpretation}")
         if assumptions:
-            lines.append("Key assumptions: " + ", ".join(str(value).strip() for value in assumptions if str(value).strip()))
+            lines.append(f"- **Key Assumptions:** {_format_list(assumptions)}")
         if caveats:
-            lines.append("Caveats: " + ", ".join(str(value).strip() for value in caveats if str(value).strip()))
+            lines.append(f"- **Caveats:** {_format_list(caveats)}")
 
     return "\n".join(lines).strip()
 
