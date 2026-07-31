@@ -4,7 +4,6 @@ string_full_graph.pkl
 *.log
 *.graphml
 *.png
-*.html
 *.sqlite3
 *.pkl
 *.zip
