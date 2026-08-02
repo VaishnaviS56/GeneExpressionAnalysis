@@ -148,6 +148,11 @@ def query_l1000cds2(
         },
         "meta": [{"key": "Cell", "value": cell} for cell in cells],
     }
+    print(f"[l1000cds2] biological up_genes ({len(up)}): {up}")
+    print(f"[l1000cds2] biological down_genes ({len(down)}): {down}")
+    print(f"[l1000cds2] payload upGenes sent to L1000CDS2 ({len(payload['data']['upGenes'])}): {payload['data']['upGenes']}")
+    print(f"[l1000cds2] payload dnGenes sent to L1000CDS2 ({len(payload['data']['dnGenes'])}): {payload['data']['dnGenes']}")
+    print(f"[l1000cds2] mode: {'mimic' if aggravate else 'reverse'}")
 
     session = get_retrying_session()
     response = session.post(

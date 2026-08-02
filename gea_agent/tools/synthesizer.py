@@ -43,6 +43,7 @@ def _compact_deg_analysis(deg_analysis: dict[str, Any] | None) -> dict[str, Any]
     genes = deg_analysis.get("genes", [])
     up_rows = deg_analysis.get("upregulated_rows")
     down_rows = deg_analysis.get("downregulated_rows")
+    ranked_rows = deg_analysis.get("ranked_rows")
 
     def compact_rows(source: Any) -> list[dict[str, Any]]:
         compact: list[dict[str, Any]] = []
@@ -55,6 +56,7 @@ def _compact_deg_analysis(deg_analysis: dict[str, Any] | None) -> dict[str, Any]
                         "g": row.get("gene") or row.get("hgnc_symbol") or row.get("external_gene_name") or row.get("Ensembl"),
                         "l2fc": row.get("log2FoldChange"),
                         "p": row.get("pvalue"),
+                        "padj": row.get("padj") or row.get("pdj"),
                     }
                 )
         return compact
@@ -110,6 +112,8 @@ def _compact_deg_analysis(deg_analysis: dict[str, Any] | None) -> dict[str, Any]
         "genes": genes[:10] if isinstance(genes, list) else [],
         "up_rows": compact_up_rows,
         "down_rows": compact_down_rows,
+        "ranked_rows": compact_rows(ranked_rows),
+        "ranking": deg_analysis.get("ranking"),
         "rows": compact_mixed_rows,
     }
 
@@ -261,6 +265,61 @@ def _compact_l1000cds2(result: dict[str, Any] | None) -> dict[str, Any] | None:
 def _compact_pubchem(result: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
+
+    compound_results = result.get("compound_results")
+    if isinstance(compound_results, list):
+        compact_compounds: list[dict[str, Any]] = []
+        for row in compound_results[:5]:
+            if not isinstance(row, dict):
+                continue
+            properties = row.get("properties") if isinstance(row.get("properties"), dict) else {}
+            l1000 = row.get("l1000") if isinstance(row.get("l1000"), dict) else {}
+            compact_compounds.append(
+                {
+                    "status": row.get("status"),
+                    "message": row.get("message"),
+                    "l1000": {
+                        "name": l1000.get("name"),
+                        "pert_id": l1000.get("pert_id"),
+                        "best_rank": l1000.get("best_rank"),
+                        "best_score": l1000.get("best_score"),
+                        "cell_lines": l1000.get("cell_lines"),
+                        "signature_count": l1000.get("signature_count"),
+                    },
+                    "drug_name": row.get("drug_name"),
+                    "pert_id": row.get("pert_id"),
+                    "matched_query": row.get("matched_query"),
+                    "matched_strategy": row.get("matched_strategy"),
+                    "title": row.get("title"),
+                    "cid": row.get("cid"),
+                    "properties": {
+                        key: properties.get(key)
+                        for key in (
+                            "MolecularFormula",
+                            "MolecularWeight",
+                            "CanonicalSMILES",
+                            "IsomericSMILES",
+                            "InChIKey",
+                            "XLogP",
+                            "TPSA",
+                        )
+                        if properties.get(key) not in (None, "")
+                    },
+                    "synonyms": row.get("synonyms")[:15] if isinstance(row.get("synonyms"), list) else [],
+                    "descriptions": row.get("descriptions")[:5] if isinstance(row.get("descriptions"), list) else [],
+                    "annotation_lines": row.get("annotation_lines")[:35] if isinstance(row.get("annotation_lines"), list) else [],
+                }
+            )
+        compact = {
+            "status": result.get("status"),
+            "message": result.get("message"),
+            "source": result.get("source"),
+            "requested_top_n": result.get("requested_top_n"),
+            "compound_count": result.get("compound_count"),
+            "ok_count": result.get("ok_count"),
+            "compound_results": compact_compounds,
+        }
+        return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
 
     properties = result.get("properties") if isinstance(result.get("properties"), dict) else {}
     compact = {
@@ -533,18 +592,28 @@ def _fallback_answer(payload: dict[str, Any]) -> str:
     if isinstance(deg, dict) and deg:
         count = deg.get("n") or len(deg.get("genes") or [])
         lines.append(f"Differential expression analysis completed with {count} retained row(s).")
+        ranked_rows = deg.get("ranked_rows")
+        if isinstance(ranked_rows, list) and ranked_rows:
+            lines.append("")
+            lines.append("**Top Ranked Genes**")
+            lines.append("| Gene | log2FC | adjusted p-value | p-value |")
+            lines.append("|---|---:|---:|---:|")
+            for row in ranked_rows[:10]:
+                if not isinstance(row, dict):
+                    continue
+                lines.append(f"| {row.get('g', '')} | {row.get('l2fc', '')} | {row.get('padj', '')} | {row.get('p', '')} |")
         for title, key in (("Top Up-Regulated Genes", "up_rows"), ("Top Down-Regulated Genes", "down_rows")):
             rows = deg.get(key)
             if not isinstance(rows, list) or not rows:
                 continue
             lines.append("")
             lines.append(f"**{title}**")
-            lines.append("| Gene | log2FC | p-value |")
-            lines.append("|---|---:|---:|")
+            lines.append("| Gene | log2FC | adjusted p-value | p-value |")
+            lines.append("|---|---:|---:|---:|")
             for row in rows[:10]:
                 if not isinstance(row, dict):
                     continue
-                lines.append(f"| {row.get('g', '')} | {row.get('l2fc', '')} | {row.get('p', '')} |")
+                lines.append(f"| {row.get('g', '')} | {row.get('l2fc', '')} | {row.get('padj', '')} | {row.get('p', '')} |")
         return "\n".join(lines).strip()
 
     if arm == "general":
@@ -696,10 +765,10 @@ def synthesize_technical_response(
                     "Sound like a professional biomedical analyst: precise, neutral, well organized, and conversational enough to guide the user through the next move. "
                     "Avoid filler, repetition, and unsupported enthusiasm. "
                     "Respect the active context: "
-                    "for `srp`, summarize only DEG results and include two separate Markdown tables named `Top Up-Regulated Genes` and `Top Down-Regulated Genes` using the provided `up_rows` and `down_rows`; each table should include Gene, log2FC, and p-value columns and at most 10 rows; if log2FC and padj are not given by user say that the default values have been used; "
-                    "for `visualize`, if payload contains *_path fields, just say that the visualization was generated successfully; "
+                    "for `srp`, summarize only DEG results, report the retained DEG count, and when `ranked_rows` is provided include a `Top Ranked Genes` table ordered by adjusted p-value ascending and absolute fold change descending; also include two separate Markdown tables named `Top Up-Regulated Genes` and `Top Down-Regulated Genes` using the provided `up_rows` and `down_rows`; each table should include Gene, log2FC, adjusted p-value, and p-value columns and at most 10 rows; if log2FC and padj are not given by user say that the default values have been used; "
+                    "for `visualize`, if the visualization succeeded, just say that it was generated successfully and do not include any file path or URL; "
                     "for `l1000cds2`, summarize only the returned small-molecule matches, requested cell-line filter, and whether the result reflects reversal or mimic mode; "
-                    "for `pubchem`, identify only genes, pathways, and diseases that are explicitly supported or reasonably inferable from the provided PubChem text and annotations; organize that answer with `Genes`, `Pathways`, and `Diseases` labels when possible; if PubChem content does not support one of those categories, say so clearly; "
+                    "for `pubchem`, identify only genes, pathways, diseases, mechanisms of action, biological targets, clinical status, and therapeutic relevance that are explicitly supported or reasonably inferable from the provided PubChem text and annotations; when `compound_results` is present, summarize each compound separately and include its L1000 rank/score context when available; if PubChem content does not support one of the requested categories, say so clearly; "
                     "for `primekg`, answer only from the provided knowledge-graph relationships; "
                     "for `opentargets`, summarize only the association evidence provided; "
                     "for `memory_lookup`, `state_lookup`, and `memory_slice`, convert the stored values into a clean readable answer and avoid raw JSON unless the user asked for literal state; "

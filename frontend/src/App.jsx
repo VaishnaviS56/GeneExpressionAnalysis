@@ -136,6 +136,10 @@ function DownloadLink({ children, disabled = false, filename, href }) {
   )
 }
 
+function downloadItem(label, filename, href) {
+  return href ? { label, filename, href } : null
+}
+
 function formatTime(value) {
   if (!value) return ''
   const date = new Date(value)
@@ -567,13 +571,38 @@ function TechnicalOutput({ meta }) {
   }
 
   const analysisArm = String(meta.analysis_arm || '').trim().toLowerCase()
-  const isDegTurn = analysisArm === 'srp'
-  const isPathwayTurn = analysisArm === 'pathway'
-  const isRwrTurn = analysisArm === 'memory_rwr' || meta.rwr_result_is_current === true
-  const isLiteratureTurn = ['disease', 'research_literature', 'literature'].includes(analysisArm)
-  const isVisualTurn = analysisArm === 'visualize'
-  const isNetworkTurn = isRwrTurn || isVisualTurn
-  const isHypothesisTurn = analysisArm === 'hypothesis'
+  const hasDegResult = Boolean(
+    meta.deg_analysis
+    || (Array.isArray(meta.deg_gene_records) && meta.deg_gene_records.length > 0)
+    || (Array.isArray(meta.deg_genes) && meta.deg_genes.length > 0)
+  )
+  const hasPathwayResult = Boolean(
+    meta.enrichr
+    && typeof meta.enrichr === 'object'
+    && meta.enrichr.libraries
+    && typeof meta.enrichr.libraries === 'object'
+  )
+  const hasRwrResult = Boolean(Array.isArray(meta.rwr_genes) && meta.rwr_genes.length > 0)
+  const hasLiteratureResult = Boolean(
+    ['disease', 'research_literature', 'literature'].includes(analysisArm)
+    || (Array.isArray(meta.ranked_openalex_papers) && meta.ranked_openalex_papers.length > 0)
+    || (Array.isArray(meta.openalex_papers) && meta.openalex_papers.length > 0)
+    || (Array.isArray(meta.literature_references) && meta.literature_references.length > 0)
+    || (Array.isArray(meta.literature_key_points) && meta.literature_key_points.length > 0)
+    || (Array.isArray(meta.literature_dataset_accessions) && meta.literature_dataset_accessions.length > 0)
+  )
+  const hasVisualResult = Boolean(
+    analysisArm === 'visualize'
+    || meta.pyvis_html_path
+    || meta.kegg_pathway_path
+    || meta.volcano_plot_path
+  )
+  const isDegTurn = analysisArm === 'srp' || hasDegResult
+  const isPathwayTurn = analysisArm === 'pathway' || hasPathwayResult
+  const isRwrTurn = analysisArm === 'memory_rwr' || meta.rwr_result_is_current === true || hasRwrResult
+  const isLiteratureTurn = hasLiteratureResult
+  const isVisualTurn = hasVisualResult
+  const isNetworkTurn = isRwrTurn || isVisualTurn || Boolean(meta.network || meta.graphml_path)
 
   const degUpRows = isDegTurn && Array.isArray(meta.deg_analysis?.upregulated_rows)
     ? meta.deg_analysis.upregulated_rows.slice(0, 10)
@@ -615,27 +644,29 @@ function TechnicalOutput({ meta }) {
     ? meta.enrichr.libraries
     : {}
   const rwrRows = isRwrTurn && Array.isArray(meta.rwr_genes) ? meta.rwr_genes.slice(0, 10) : []
-  const openTargets = analysisArm === 'opentargets' && meta.opentargets_result && typeof meta.opentargets_result === 'object' ? meta.opentargets_result : null
-  const primeKg = analysisArm === 'primekg' && meta.primekg_result && typeof meta.primekg_result === 'object' ? meta.primekg_result : null
-  const l1000 = analysisArm === 'l1000cds2' && meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' ? meta.l1000cds2_result : null
-  const pubchem = analysisArm === 'pubchem' && meta.pubchem_result && typeof meta.pubchem_result === 'object' ? meta.pubchem_result : null
-  const hypothesis = isHypothesisTurn && meta.hypothesis_result && typeof meta.hypothesis_result === 'object' ? meta.hypothesis_result : null
-  const druggability = analysisArm === 'druggability' && meta.druggability_result && typeof meta.druggability_result === 'object' ? meta.druggability_result : null
-  const pdbVisualization = analysisArm === 'pdb_visualizer' && meta.pdb_visualization_result && typeof meta.pdb_visualization_result === 'object' ? meta.pdb_visualization_result : null
+  const openTargets = meta.opentargets_result && typeof meta.opentargets_result === 'object' ? meta.opentargets_result : null
+  const primeKg = meta.primekg_result && typeof meta.primekg_result === 'object' ? meta.primekg_result : null
+  const l1000 = meta.l1000cds2_result && typeof meta.l1000cds2_result === 'object' ? meta.l1000cds2_result : null
+  const pubchem = meta.pubchem_result && typeof meta.pubchem_result === 'object' ? meta.pubchem_result : null
+  const hypothesis = meta.hypothesis_result && typeof meta.hypothesis_result === 'object' ? meta.hypothesis_result : null
+  const druggability = meta.druggability_result && typeof meta.druggability_result === 'object' ? meta.druggability_result : null
+  const pdbVisualization = meta.pdb_visualization_result && typeof meta.pdb_visualization_result === 'object' ? meta.pdb_visualization_result : null
   const usesRetrievedLiterature = isLiteratureTurn && analysisArm !== 'research_literature'
   const rankedPapers = usesRetrievedLiterature && Array.isArray(meta.ranked_openalex_papers) ? meta.ranked_openalex_papers.slice(0, 5) : []
   const scannedPapers = usesRetrievedLiterature && Array.isArray(meta.openalex_papers) ? meta.openalex_papers.slice(0, 5) : []
+  const literatureDatasetAccessions = isLiteratureTurn && Array.isArray(meta.literature_dataset_accessions) ? meta.literature_dataset_accessions : []
   const literatureReferences = isLiteratureTurn && Array.isArray(meta.literature_references) ? meta.literature_references : []
   const literatureStats = [
     { label: 'Scanned', value: usesRetrievedLiterature && Array.isArray(meta.openalex_papers) ? meta.openalex_papers.length : 0 },
     { label: 'Ranked', value: usesRetrievedLiterature && Array.isArray(meta.ranked_openalex_papers) ? meta.ranked_openalex_papers.length : 0 },
     { label: 'Key points', value: Array.isArray(meta.literature_key_points) ? meta.literature_key_points.length : 0 },
+    { label: 'Datasets', value: literatureDatasetAccessions.length },
     { label: 'References', value: Array.isArray(meta.literature_references) ? meta.literature_references.length : 0 },
   ].filter((item) => item.value > 0)
   const network = isNetworkTurn && meta.network && typeof meta.network === 'object' ? meta.network : null
   const topDegree = Array.isArray(network?.top_degree) ? network.top_degree.slice(0, 10) : []
-  const pyvisHtmlPath = isVisualTurn && typeof meta.pyvis_html_path === 'string' ? meta.pyvis_html_path : ''
-  const keggPath = isVisualTurn && typeof meta.kegg_pathway_path === 'string' ? meta.kegg_pathway_path : ''
+  const pyvisHtmlPath = typeof meta.pyvis_html_path === 'string' ? meta.pyvis_html_path : ''
+  const keggPath = typeof meta.kegg_pathway_path === 'string' ? meta.kegg_pathway_path : ''
   const volcanoPath = (isVisualTurn || isDegTurn) && typeof meta.volcano_plot_path === 'string' ? meta.volcano_plot_path : ''
   const graphmlPath = isNetworkTurn && typeof meta.graphml_path === 'string' ? meta.graphml_path : ''
   const pdbViewerPath = typeof druggability?.pdb_viewer_html_path === 'string' ? druggability.pdb_viewer_html_path : ''
@@ -686,7 +717,46 @@ function TechnicalOutput({ meta }) {
       { label: 'cell_lines', value: (row) => row.cell_lines },
     ])
     : ''
-  const hasDownloads = Boolean(degCsvHref || volcanoPath || l1000CsvHref || pathwayCsvHref || graphmlPath || pdbViewerPath || fixedPdbPath || rawPdbPath || dogsiteTablePath || proteinViewerPath || proteinPdbPath)
+  const downloadItems = [
+    isDegTurn
+      ? downloadItem('DEG genes CSV', 'deg_genes.csv', degCsvHref)
+      : null,
+    (isDegTurn || isVisualTurn)
+      ? downloadItem(
+        'Volcano plot',
+        volcanoMode === 'html' ? 'deg_volcano.html' : 'deg_volcano.png',
+        volcanoPath ? buildAssetUrl(volcanoPath, { download: true }) : '',
+      )
+      : null,
+    l1000
+      ? downloadItem('L1000 table CSV', 'l1000cds2_results.csv', l1000CsvHref)
+      : null,
+    isPathwayTurn
+      ? downloadItem('Pathway CSV', 'pathway_enrichment.csv', pathwayCsvHref)
+      : null,
+    isNetworkTurn
+      ? downloadItem('STRING graph GraphML', 'string_network.graphml', graphmlPath ? buildAssetUrl(graphmlPath, { download: true }) : '')
+      : null,
+    druggability
+      ? downloadItem('PDB viewer', `${druggability?.gene || 'protein'}_pocket_viewer.html`, pdbViewerPath ? buildAssetUrl(pdbViewerPath, { download: true }) : '')
+      : null,
+    druggability
+      ? downloadItem('Fixed PDB', `${druggability?.gene || 'protein'}_fixed.pdb`, fixedPdbPath ? buildAssetUrl(fixedPdbPath, { download: true }) : '')
+      : null,
+    druggability
+      ? downloadItem('Raw PDB', `${druggability?.gene || 'protein'}_raw.pdb`, rawPdbPath ? buildAssetUrl(rawPdbPath, { download: true }) : '')
+      : null,
+    druggability
+      ? downloadItem('DoGSite table', `${druggability?.gene || 'protein'}_dogsite_table.txt`, dogsiteTablePath ? buildAssetUrl(dogsiteTablePath, { download: true }) : '')
+      : null,
+    pdbVisualization
+      ? downloadItem('Protein viewer', `${pdbVisualization?.gene || pdbVisualization?.uniprot_id || 'protein'}_pdb_viewer.html`, proteinViewerPath ? buildAssetUrl(proteinViewerPath, { download: true }) : '')
+      : null,
+    pdbVisualization
+      ? downloadItem('Protein PDB', `${pdbVisualization?.gene || pdbVisualization?.uniprot_id || 'protein'}.pdb`, proteinPdbPath ? buildAssetUrl(proteinPdbPath, { download: true }) : '')
+      : null,
+  ].filter(Boolean)
+  const hasDownloads = downloadItems.length > 0
   const hasVisuals = Boolean(pyvisHtmlPath || keggPath || volcanoPath || pdbViewerPath || proteinViewerPath)
   const hasNetwork = Boolean(network && (network.nodes || network.edges || topDegree.length > 0))
   const hasLiterature = Boolean(
@@ -700,7 +770,21 @@ function TechnicalOutput({ meta }) {
   const hasL1000 = Boolean(l1000 && (Array.isArray(l1000.top_drugs) || l1000.message))
   const hasOpenTargets = Boolean(openTargets)
   const hasPrimeKg = Boolean(primeKg && (primeKg.answer || primeKg.cypher || (Array.isArray(primeKg.rows) && primeKg.rows.length > 0)))
-  const hasPubchem = Boolean(pubchem)
+  const isBatchPubchem = Boolean(pubchem && (pubchem.source === 'l1000cds2_top_drugs' || Array.isArray(pubchem.compound_results)))
+  const pubchemHasProperties = Boolean(pubchem?.properties && typeof pubchem.properties === 'object' && Object.keys(pubchem.properties).length > 0)
+  const hasPubchem = Boolean(
+    pubchem
+    && !isBatchPubchem
+    && (
+      pubchem.title
+      || pubchem.drug_name
+      || pubchem.cid
+      || pubchem.matched_query
+      || pubchemHasProperties
+      || (Array.isArray(pubchem.synonyms) && pubchem.synonyms.length > 0)
+      || (Array.isArray(pubchem.annotation_lines) && pubchem.annotation_lines.length > 0)
+    )
+  )
   const hasHypothesis = Boolean(hypothesis && (hypothesis.hypothesis_summary || (Array.isArray(hypothesis.hypotheses) && hypothesis.hypotheses.length > 0)))
   const hasDruggability = Boolean(druggability && (Array.isArray(druggability.top_pockets) || pdbViewerPath || druggability.message))
   const hasPdbVisualization = Boolean(pdbVisualization && (proteinViewerPath || proteinPdbPath || pdbVisualization.message))
@@ -739,83 +823,15 @@ function TechnicalOutput({ meta }) {
         {hasDownloads && (
           <TechnicalSection title="Downloads" subtitle="Export the current technical outputs for downstream analysis.">
             <div className="download-grid">
-              <DownloadLink
-                disabled={!degCsvHref}
-                filename="deg_genes.csv"
-                href={degCsvHref}
-              >
-                DEG genes CSV
-              </DownloadLink>
-              <DownloadLink
-                disabled={!volcanoPath}
-                filename={volcanoMode === 'html' ? 'deg_volcano.html' : 'deg_volcano.png'}
-                href={volcanoPath ? buildAssetUrl(volcanoPath, { download: true }) : ''}
-              >
-                Volcano plot
-              </DownloadLink>
-              <DownloadLink
-                disabled={!l1000CsvHref}
-                filename="l1000cds2_results.csv"
-                href={l1000CsvHref}
-              >
-                L1000 table CSV
-              </DownloadLink>
-              <DownloadLink
-                disabled={!pathwayCsvHref}
-                filename="pathway_enrichment.csv"
-                href={pathwayCsvHref}
-              >
-                Pathway CSV
-              </DownloadLink>
-              <DownloadLink
-                disabled={!graphmlPath}
-                filename="string_network.graphml"
-                href={graphmlPath ? buildAssetUrl(graphmlPath, { download: true }) : ''}
-              >
-                STRING graph GraphML
-              </DownloadLink>
-              <DownloadLink
-                disabled={!pdbViewerPath}
-                filename={`${druggability?.gene || 'protein'}_pocket_viewer.html`}
-                href={pdbViewerPath ? buildAssetUrl(pdbViewerPath, { download: true }) : ''}
-              >
-                PDB viewer
-              </DownloadLink>
-              <DownloadLink
-                disabled={!fixedPdbPath}
-                filename={`${druggability?.gene || 'protein'}_fixed.pdb`}
-                href={fixedPdbPath ? buildAssetUrl(fixedPdbPath, { download: true }) : ''}
-              >
-                Fixed PDB
-              </DownloadLink>
-              <DownloadLink
-                disabled={!rawPdbPath}
-                filename={`${druggability?.gene || 'protein'}_raw.pdb`}
-                href={rawPdbPath ? buildAssetUrl(rawPdbPath, { download: true }) : ''}
-              >
-                Raw PDB
-              </DownloadLink>
-              <DownloadLink
-                disabled={!dogsiteTablePath}
-                filename={`${druggability?.gene || 'protein'}_dogsite_table.txt`}
-                href={dogsiteTablePath ? buildAssetUrl(dogsiteTablePath, { download: true }) : ''}
-              >
-                DoGSite table
-              </DownloadLink>
-              <DownloadLink
-                disabled={!proteinViewerPath}
-                filename={`${pdbVisualization?.gene || pdbVisualization?.uniprot_id || 'protein'}_pdb_viewer.html`}
-                href={proteinViewerPath ? buildAssetUrl(proteinViewerPath, { download: true }) : ''}
-              >
-                Protein viewer
-              </DownloadLink>
-              <DownloadLink
-                disabled={!proteinPdbPath}
-                filename={`${pdbVisualization?.gene || pdbVisualization?.uniprot_id || 'protein'}.pdb`}
-                href={proteinPdbPath ? buildAssetUrl(proteinPdbPath, { download: true }) : ''}
-              >
-                Protein PDB
-              </DownloadLink>
+              {downloadItems.map((item) => (
+                <DownloadLink
+                  filename={item.filename}
+                  href={item.href}
+                  key={`${item.label}-${item.filename}`}
+                >
+                  {item.label}
+                </DownloadLink>
+              ))}
             </div>
           </TechnicalSection>
         )}
@@ -911,6 +927,36 @@ function TechnicalOutput({ meta }) {
                     <span>{paper.source || '-'}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {literatureDatasetAccessions.length > 0 && (
+              <div className="technical-table">
+                <div className="trace-label">Dataset accessions</div>
+                <div className="technical-row technical-head technical-row-accessions">
+                  <span>Accession</span>
+                  <span>Database</span>
+                  <span>Type</span>
+                  <span>Paper</span>
+                  <span>Evidence</span>
+                </div>
+                {literatureDatasetAccessions.slice(0, 20).map((row, index) => {
+                  const url = typeof row.url === 'string' ? row.url.trim() : ''
+                  const accession = row.accession || row.id || row.dataset_id || '-'
+                  return (
+                    <div className="technical-row technical-row-accessions" key={`${accession}-${index}`}>
+                      <span>
+                        {url && isWebUrl(url)
+                          ? <a href={url} target="_blank" rel="noreferrer">{accession}</a>
+                          : accession}
+                      </span>
+                      <span>{row.database || row.source || '-'}</span>
+                      <span>{row.accession_type || row.type || '-'}</span>
+                      <span>{row.paper_id ? `#${row.paper_id}` : row.paper_title || '-'}</span>
+                      <span>{row.evidence || row.note || row.paper_title || '-'}</span>
+                    </div>
+                  )
+                })}
               </div>
             )}
 

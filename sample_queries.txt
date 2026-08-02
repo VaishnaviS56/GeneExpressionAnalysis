@@ -1,24 +1,19 @@
-1. what options do you have to perform gene expression analysis and identify differentially expressed genes
-2. what is the SRP id SRP033351 experiment about?
-3. identify differentially expressed genes from SRP id SRP033351 with control as "Untreated" and test as "Dexamethasone"
-3a. Generate a volcano plot for the differentially expressed genes
-4. List the differentially up-regulated genes
-5. perform pathway enrichment using the top 300 downregulated genes
-6. Display Cytokine-cytokine receptor interaction pathway
-7a. from online research, mutations to which of these genes are associated with inhaled corticosteroid response and short-acting bronchodilator response in context of asthma: "ALOX15B", "ZBTB16", "ENSG00000250978", "ANGPTL7", "ENSG00000277196", "STEAP4", "LINC02997", "LGI3", "FAM107A", "SPARCL1", "KLF15", "TSPAN8", "TLDC2", "SLC16A12", "RASL11B", "FKBP5", "MARCHF10", "ENSG00000273259", "SAMHD1", "CIDEC", "GPX3", "ITGA10", "ADRA1B", "DLL4", "INHBB", "LINC00702", "SYN2", "TSC22D3", "CACNB2", "MAOA", "PLCXD3", "MT1X", "C7", "LEP", "PER1", "RGCC", "MYH13", "GRIK1-AS1", "ALPK3", "GLUL", "RTL3", "DUSP1", "TIMP4", "CCDC69", "KCNK6", "B3GALT2", "LINC02551", "PPP1R14A", "MOB3B", "RAPGEF5", "CRISPLD2"
-7b. from online research, mutations to which of these genes are associated with inhaled corticosteroid response and short-acting bronchodilator response in context of asthma:C7, CCDC69, DUSP1, FKBP5, GPX3, KLF15, MAOA, SAMHD1, SERPINA3, SPARCL1, C13orf15, TSC22D3, CRISPLD2, PER1, KCTD12, ERRFI1, STEAP4
-7c. Based on literature and genome wide association studies, identify the genes among the top 75 upregulated genes, for which mutations are associated with inhaled corticosteroid response and short-acting bronchodilator response.
-8. Suggest and design the downstream experiments required to validate the association of CRISPLD2 with asthma
-9. is there any evidence regarding "Genetic variants in CRISPLD2 are associated with asthma susceptibility, severity, or response to corticosteroid treatment"
-9a. is there any existing evidence regarding: Genetic Variants in CRISPLD2 are Associated with Asthma Susceptibility or Phenotype in Human Cohorts
-10. perform RWR using the seed genes: CCR1, TGFB2, TSLP, TNFSF15, GDF15, IL34, LIF, TNFRSF11B, NGF, GDF5, INHBE, TNFSF13B, CXCL12, ACVR1C, CCL8, ACKR4, TNFSF9, IL12A
-10a. Consider the genes from Cytokine-cytokine receptor interaction pathway as seed genes and perform random walk with restart to identify other important genes in the protein-protein interaction network
-10b. Display the important genes identified from RWR and their interactions with the seed genes in a consolidated network view
-11. what are the diseases associated with CRISPLD2
-12. what cellular components are associated with CRISPLD2?
-13. Consider the differential gene expression profile of A549 and identify the drugs with complimentary differential gene expression profile from the L1000CDS portal.
-14. Summarize the details of drug BRD-K60640630 from PubChem
-15. Display the CRISPLD2 protein structure in PDB viewer
-16. Analyse and comment on the druggability for CRISPLD2 protein
-
-ALOX15B, ZBTB16, ENSG00000250978, ANGPTL7, ENSG00000277196, STEAP4, LINC02997, LGI3, FAM107A, SPARCL1, KLF15, TSPAN8, TLDC2, SLC16A12, RASL11B, FKBP5, MARCHF10, ENSG00000273259, SAMHD1, CIDEC
+1)We would like to identify evidence of glucocorticoid-responsive genes in airway smooth muscle cells. Is there any RNAseq data available for airway smooth muscle cells treated with any glucocorticoid such as dexamethasone?
+2)What transcriptomic analyses can be performed on dataset SRP033351?
+3)Identify differentially expressed genes between Dexamethasone-treated and Untreated samples in SRP033351 using DESeq2. Report the number of DEGs and rank genes by adjusted p-value and fold change.
+4)Generate a volcano plot highlighting significantly upregulated and downregulated genes. Label neutral genes as all non-DEGs and annotate the most significant transcriptomic changes.
+5)Perform pathway enrichment analysis on the top downregulated DEGs. Report enriched pathways, adjusted p-values, overlap genes, and directionality.
+6)Display the Cytokine-cytokine receptor interaction pathway
+7)Among the prioritized differentially expressed genes, identify genes with published evidence from GWAS, WGS, candidate-gene studies, pharmacogenomic studies, or functional validation linking them to following two asthma drug response phenotypes: inhaled corticosteroid response and short-acting bronchodilator response. Provide PMID/DOI/URL for each claim and classify evidence as High, Moderate, Low, or Unsupported.
+<Note: In case the above prompt dose not provide desired results, use the following:> Based on literature and genome wide association studies, identify the genes among the top 75 upregulated genes, for which mutations are associated with the following two asthma drug response phenotypes: inhaled corticosteroid response and short-acting bronchodilator response.(Keeps taking downregulated genes)
+8)Perform a literature review to determine whether CRISPLD2 has published genetic, transcriptomic, or functional evidence supporting a role in asthma biology. For each claim, provide citation details and state whether the evidence is direct, indirect, or unsupported.
+9)Design in vitro, in vivo, and human genetics studies that could validate CRISPLD2 as a contributor to asthma pathophysiology and corticosteroid responsiveness. Include controls, readouts, expected outcomes, and limitations.
+10)Using genes from the significantly enriched Cytokine–Cytokine Receptor Interaction pathway as seed genes, perform Random Walk with Restart to identify functionally connected genes in the protein–protein interaction network.
+11)Display the RWR network showing seed genes, prioritized genes, interaction strengths, RWR scores, and network connectivity.
+12)Summarize the top RWR-prioritized genes and explain which candidates appear most connected to the enriched pathway seed genes.
+13)Using the differential gene expression signature induced by dexamethasone treatment, identify compounds from LINCS L1000 / L1000CDS2 whose transcriptional signatures are reverse of the observed expression profile. Report direction, cell line, score, and annotation status.
+14)Summarize the mechanism of action, biological targets, clinical status, and therapeutic relevance of the top-ranked L1000 compounds. 
+15)Display the CRISPLD2 protein structure in PDB viewer.
+16)Assess the druggability of CRISPLD2 by identifying ligandable pockets, estimating pocket drug scores, and evaluating suitability for small-molecule, antibody, peptide, protein, or RNA-based therapeutic strategies.
+17)what are the diseases associated with CRISPLD2
+18)what cellular components are associated with CRISPLD2?

@@ -35,7 +35,7 @@ from gea_agent.tools.srp_metadata import fetch_srp_metadata_summary_safe
 from gea_agent.tools.string_local_graph import build_weighted_graph_from_string_files, load_gene_to_string_id
 from gea_agent.tools.synthesizer import synthesize_technical_response
 from gea_agent.tools.primekg import query_primekg
-from gea_agent.tools.srp_ids import extract_srp_ids_from_text
+from gea_agent.tools.srp_ids import extract_gse_ids_from_text, extract_srp_ids_from_text
 from gea_agent.tools.visualizers import (
     build_kegg_pathway_visualization,
     build_network_visualization,
@@ -49,16 +49,16 @@ MAX_LITERATURE_CALLS_PER_QUERY = 2
 TOOL_USE_INSTRUCTIONS = '''
 Tool selection guide and capability boundaries:
 1. deg_analysis: Runs one supported DEG workflow only: DEE2 SRA project data identified by SRP accessions, analyzed with the configured R script that uses getDEE2/DEE2 inputs and DESeq2. Required parameters are `srp_ids`, `control_name`, and `test_name`; optional thresholds are `log2fold` and `padj`. Do not use for uploaded count matrices, GEO-only IDs without SRP accessions, single-cell data, proteomics, EdgeR, limma/Lemma, voom, NOISeq, custom design formulas, batch correction, or arbitrary local files. If the user requests an unsupported DEG source or method, say it is not available and name the supported option.
-1b. srp_metadata: Retrieves DEE2/SRA metadata for SRP accessions when a DEG request has SRP IDs but lacks exact control/test cohort labels. It returns DEE2 descriptions and SRA/BioSample-derived treatment, sample_name, and disease values to help the user choose labels. It does not run DEG analysis or infer a contrast by itself.
+1b. srp_metadata: Retrieves DEE2/SRA metadata for SRP accessions, or for GSE accessions after resolving them to linked SRP accessions, when a DEG request lacks exact control/test cohort labels. It returns DEE2 descriptions and SRA/BioSample-derived treatment, sample_name, and disease values to help the user choose labels. It does not run DEG analysis or infer a contrast by itself.
 2. pathway: Runs over-representation enrichment through Enrichr/gget only. Supported libraries are the configured Reactome, KEGG Human, and GO Biological Process/Molecular Function/Cellular Component sets. Inputs must be explicit genes or stored DEG/RWR/literature genes; use `direction` as `up`, `down`, or `all`, `gene_limit` for top-N gene selection, and `term_limit` for returned terms. Do not promise GSEA, ORA background customization beyond the tool's `background_genes`, WikiPathways, MSigDB, ReactomePA, clusterProfiler, or custom GMT support.
 3. rwr_analysis: Performs Random Walk with Restart over the configured local STRING network only. Seed priority is strict: explicit genes named by the user first, then overlapping genes from stored pathway/enrichment results, then stored DEG genes. Supported parameters include `genes`, `top_k`/`top_n`, `restart_prob`, and STRING file/score settings. Do not claim it uses BioGRID, IntAct, tissue-specific networks, directed causal edges, or a newly downloaded network.
 4. literature: Retrieves and ranks literature evidence through the agent's OpenAlex/PubMed/Google Scholar pipeline. It can use `disease_name`, `genes`, `top_n`, and `text`. Use it when the user asks to find/search/check evidence for a statement, claim, mechanism, biomarker, gene-disease link, or explicitly asks for PubMed/OpenAlex/Google Scholar/paper searches. Do not use it for full-text paywalled article extraction, systematic-review guarantees, clinical advice, or live database curation beyond the configured sources.
-4b. research_literature: Produces a literature-style answer with references from model knowledge, optionally grounded by provided disease/genes. It does not perform live retrieval and its references are best-effort/model-generated unless later verified. Use for broad research, investigate, review, explain, summarize, overview, or "what is known about" requests that do not specifically ask to find/search/check evidence or run a PubMed/OpenAlex/Google Scholar/paper search; do not present its citations as newly searched or verified.
+4b. research_literature: Produces a literature-style answer with references, first attempting external evidence retrieval through the configured OpenAlex/PubMed/Google Scholar pipeline and then synthesizing retrieved titles/abstracts. If retrieval fails or returns no usable records, it falls back to model knowledge and clearly marks references as unverified. Use for broad research, investigate, review, explain, summarize, overview, dataset-availability, or "what is known about" requests that do not specifically ask to check evidence for a precise claim.
 5. identify_disease_from_query: Extracts a disease label from text only. It does not validate diagnosis, map ontology IDs, or prove disease-gene associations.
 6. primekg_query: Queries the configured local PrimeKG/Neo4j graph using read-only Cypher. It can answer graph relationships among PrimeKG entities such as genes/proteins, diseases, drugs, pathways, phenotypes, anatomy, biological processes, molecular functions, cellular components, and exposures. Do not use it for live web knowledge, non-PrimeKG facts, graph writes, schema changes, or unsupported labels/relationship types.
 7. opentargets_association: Queries OpenTargets for gene-disease associations and gene-linked drugs, with gene normalization to Ensembl IDs via MyGene. Use for association evidence and top disease/drug lookups. Do not use it for pathway enrichment, DEG computation, PubChem chemistry lookup, PrimeKG paths, or full clinical trial interpretation.
-8. l1000cds2_query: Queries L1000CDS2 for small-molecule signatures from separate up-regulated and down-regulated gene lists. It supports reverse mode by default and mimic/aggravate mode when requested, optional cell-line filters, combination/share flags, and result limits. Do not use it for CMap APIs outside L1000CDS2, arbitrary drug mechanism lookup, or when only one undirected gene list is available unless a split is clearly specified or stored DEG directions exist.
-9. pubchem_drug_lookup: Queries PubChem for a named compound, `pert_desc`, or BRD-like `pert_id`, then summarizes compound properties, synonyms, descriptions, and annotations. It can infer genes/pathways/diseases only when supported by returned PubChem text. Do not use it for drug perturbation signatures, L1000 ranking, target validation, clinical efficacy, or non-compound biomedical graph questions.
+8. l1000cds2_query: Queries L1000CDS2 for small-molecule signatures from full separate up-regulated and down-regulated gene lists. It supports reverse mode by default and mimic/aggravate mode when requested, optional cell-line filters, combination/share flags, and result limits. `top N` affects only returned compound matches, not input gene-list length. Do not use it for CMap APIs outside L1000CDS2, arbitrary drug mechanism lookup, or when only one undirected gene list is available unless a split is clearly specified or stored DEG directions exist.
+9. pubchem_drug_lookup: Queries PubChem for a named compound, `pert_desc`, BRD-like `pert_id`, or stored top L1000CDS2 compounds, then summarizes compound properties, synonyms, descriptions, and annotations. It can infer mechanisms, targets, genes/pathways/diseases, clinical-status hints, and therapeutic relevance only when supported by returned PubChem text. Do not use it for drug perturbation signatures, L1000 ranking, target validation, clinical efficacy, or non-compound biomedical graph questions.
 10. hypothesis: Generates plausible biomedical hypotheses and conceptual validation experiment ideas from the conversation and stored analysis memory only. Use for hypothesis generation, mechanistic hypotheses, validation plans, follow-up experimental ideas, "test whether" questions, and conceptual experiment design. It can suggest experiment designs, readouts, controls, expected observations, interpretation, caveats, rationale, and key assumptions. It does not validate hypotheses against external sources, search literature, cite references, assess novelty, retrieve new evidence, or provide step-by-step wet-lab protocols.
 11. visualize: Creates only supported visual artifacts: `network` for STRING/PyVis HTML, `kegg` for KEGG/gget pathway image, and `volcano` for DEG volcano HTML. It needs stored graph/genes/pathway/DEG rows or explicit genes. Do not use it for heatmaps, PCA, UMAP, boxplots, survival plots, circos plots, dashboards, or custom figures unless implemented as a supported visualization type.
 12. memory_lookup: Answers intersections, overlap-gene lookups, membership checks, and stored pathway/GO/DEG matching from current chat memory only. Do not use it for new analysis or external data.
@@ -81,11 +81,11 @@ Operational guidance:
 - Use `primekg_query` for gene/protein questions asking which PrimeKG entity categories are associated with a gene, including cellular components, biological processes, molecular functions, phenotypes, anatomy, and exposures.
 - Use `primekg_query` first for "what connects", "what links", mediator, multi-hop, and graph-neighborhood questions.
 - Use `l1000cds2_query` for L1000CDS2/L1000/CMap/connectivity-map signature reversal, mimic/aggravate, drug-repurposing, and small-molecule match requests when stored DEG directions or explicit up/down gene lists are available.
-- Use `pubchem_drug_lookup` for PubChem compound details, properties, annotations, BRD/pert_id lookups, or follow-ups asking to inspect the selected/top L1000CDS2 compound. Do not use PubChem to perform L1000 signature reversal.
+- Use `pubchem_drug_lookup` for PubChem compound details, properties, annotations, BRD/pert_id lookups, or follow-ups asking to inspect the selected/top L1000CDS2 compound(s), including mechanism of action, biological targets, clinical status, and therapeutic relevance. Do not use PubChem to perform L1000 signature reversal.
 - Use `pdb_visualizer` when the user asks to show, view, fetch, render, or visualize a gene/protein PDB, AlphaFold model, 3D protein, or protein structure without pocket/druggability scoring.
 - Use `visualize` with `visualization_type="network"` when the user asks to visualize/show/draw/render/open the RWR/random-walk/network-propagation result, or asks for a network/graph after RWR results are already stored.
 - For stored DEG follow-ups, interpret positive `log2FoldChange` as up-regulated and negative `log2FoldChange` as down-regulated.
-- For DEG requests with SRP IDs but missing or ambiguous control/test labels, call `srp_metadata` first so the user can select exact cohort labels from DEE2/SRA metadata.
+- For DEG requests with SRP or GSE IDs but missing or ambiguous control/test labels, call `srp_metadata` first so the user can select exact cohort labels from DEE2/SRA metadata.
 - If a specialist is used, let the workflow continue through the specialist/final synthesis path rather than answering from partial assumptions.
 - Gemini/Gemma tool-calling rule for DEG requests: when a query contains SRP accessions and no unsupported DEG method/source is requested, call `deg_analysis` and place those accessions in the structured `srp_ids` list instead of leaving them only in prose.
 - Preferred `deg_analysis` argument shape: `{"srp_ids":["SRP123456"],"control_name":"control cohort","test_name":"test cohort","log2fold":1.0,"padj":0.05,"text":"full user request"}`.
@@ -246,6 +246,27 @@ def _stored_deg_genes_by_direction(
         direction=normalized_direction,
         top_n=top_n,
     )
+
+
+def _rank_deg_records_by_padj_and_fold_change(records: Any) -> list[dict[str, Any]]:
+    if not isinstance(records, list):
+        return []
+
+    ranked_rows: list[tuple[float, float, dict[str, Any]]] = []
+    for row in records:
+        if not isinstance(row, dict):
+            continue
+        try:
+            padj = float(row.get("padj") or row.get("pdj"))
+        except Exception:
+            padj = float("inf")
+        try:
+            abs_log2fc = abs(float(row.get("log2FoldChange")))
+        except Exception:
+            abs_log2fc = 0.0
+        ranked_rows.append((padj, -abs_log2fc, row))
+
+    return [row for _padj, _abs_log2fc, row in sorted(ranked_rows, key=lambda item: (item[0], item[1]))]
 
 
 def _deg_direction_from_query(text: str | None) -> str:
@@ -547,6 +568,8 @@ def _looks_like_research_literature_query(text: str | None) -> bool:
     query = str(text or "").lower()
     if _looks_like_literature_query(query):
         return True
+    if _looks_like_rnaseq_dataset_discovery_query(query):
+        return True
     research_markers = (
         "based on literature",
         "based on the literature",
@@ -565,6 +588,39 @@ def _looks_like_research_literature_query(text: str | None) -> bool:
         "summarize",
     )
     return any(marker in query for marker in research_markers)
+
+
+def _looks_like_rnaseq_dataset_discovery_query(text: str | None) -> bool:
+    query = " ".join(str(text or "").lower().split())
+    if not query:
+        return False
+    data_markers = (
+        "rnaseq data",
+        "rna-seq data",
+        "rna seq data",
+        "rna sequencing data",
+        "transcriptomic data",
+        "transcriptome data",
+        "expression dataset",
+        "gene expression dataset",
+        "rna-seq dataset",
+        "rnaseq dataset",
+    )
+    availability_markers = (
+        "is there any",
+        "are there any",
+        "data available",
+        "dataset available",
+        "datasets available",
+        "available data",
+        "available dataset",
+        "available datasets",
+        "find data",
+        "find datasets",
+        "identify data",
+        "identify datasets",
+    )
+    return any(marker in query for marker in data_markers) and any(marker in query for marker in availability_markers)
 
 
 def _evidence_statement_search_requested(text: str | None) -> bool:
@@ -672,6 +728,9 @@ def _should_force_research_literature_tool(state: AgentState) -> bool:
     )
     if any(marker in lowered for marker in explicit_non_lit_markers):
         return False
+
+    if _looks_like_rnaseq_dataset_discovery_query(query):
+        return True
 
     direct_answer_markers = (
         "based on literature",
@@ -799,7 +858,7 @@ def _unsupported_deg_request_message(text: str | None) -> str:
         for marker, label in unsupported_sources.items()
         if marker in query
     ]
-    if requested_sources and not extract_srp_ids_from_text(str(text or "")):
+    if requested_sources and not (extract_srp_ids_from_text(str(text or "")) or extract_gse_ids_from_text(str(text or ""))):
         sources = ", ".join(dict.fromkeys(requested_sources))
         return (
             f"{sources} are not available for DEG analysis in this agent unless they resolve to DEE2 SRP accessions. "
@@ -874,7 +933,8 @@ def _deg_group_labels_available(state: AgentState, text: str | None, args: dict[
 def _should_force_srp_metadata(state: AgentState) -> bool:
     query = str(state.get("query") or "")
     srp_ids = _normalize_srp_ids(state.get("srp_ids")) or _normalize_srp_ids(query)
-    if not srp_ids:
+    gse_ids = extract_gse_ids_from_text(query)
+    if not srp_ids and not gse_ids:
         return False
     if _ensure_dict(state.get("srp_metadata_result")):
         return False
@@ -992,13 +1052,18 @@ def _extract_deg_group_labels_from_text(text: str | None) -> dict[str, str]:
     if not query:
         return {"control_name": "", "test_name": ""}
 
+    def clean_label(value: str) -> str:
+        value = str(value or "").strip().strip("\"'` .,:;")
+        value = re.sub(r"\b(?:samples?|cohorts?|groups?|conditions?|arms?)\b\.?$", "", value, flags=re.IGNORECASE).strip()
+        value = re.sub(r"[-\s]+treated\b", "", value, flags=re.IGNORECASE).strip()
+        return " ".join(value.split())
+
     def find_label(patterns: tuple[str, ...]) -> str:
         for pattern in patterns:
             match = re.search(pattern, query, flags=re.IGNORECASE)
             if not match:
                 continue
-            value = str(match.group(1) or "").strip().strip("\"'` .,:;")
-            value = " ".join(value.split())
+            value = clean_label(str(match.group(1) or ""))
             if value:
                 return value
         return ""
@@ -1015,6 +1080,36 @@ def _extract_deg_group_labels_from_text(text: str | None) -> dict[str, str]:
             r"\btest\s+(?:as|is|=|:)\s+(.+?)(?:\s+\band\b\s+control\b|\s+\bvs\b|\s+\bversus\b|$)",
         )
     )
+
+    if not (control_name and test_name):
+        contrast_patterns = (
+            r"\bbetween\s+[\"']?([^\"']+?)[\"']?\s+\band\s+[\"']?([^\"']+?)[\"']?(?:\s+(?:samples?|cohorts?|groups?|conditions?|arms?))?(?:\s+(?:in|using|with|from|for|by|via)\b|[.?!]|$)",
+            r"\bcompare\s+[\"']?([^\"']+?)[\"']?\s+(?:to|against|vs\.?|versus)\s+[\"']?([^\"']+?)[\"']?(?:\s+(?:samples?|cohorts?|groups?|conditions?|arms?))?(?:\s+(?:in|using|with|from|for|by|via)\b|[.?!]|$)",
+            r"\b[\"']?([^\"']+?)[\"']?\s+(?:vs\.?|versus)\s+[\"']?([^\"']+?)[\"']?(?:\s+(?:samples?|cohorts?|groups?|conditions?|arms?))?(?:\s+(?:in|using|with|from|for|by|via)\b|[.?!]|$)",
+        )
+        for pattern in contrast_patterns:
+            match = re.search(pattern, query, flags=re.IGNORECASE)
+            if not match:
+                continue
+            left = clean_label(str(match.group(1) or ""))
+            right = clean_label(str(match.group(2) or ""))
+            if not left or not right:
+                continue
+            left_lower = left.lower()
+            right_lower = right.lower()
+            left_is_control = any(marker in left_lower for marker in ("untreated", "control", "vehicle", "baseline"))
+            right_is_control = any(marker in right_lower for marker in ("untreated", "control", "vehicle", "baseline"))
+            if right_is_control and not left_is_control:
+                control_name = control_name or right
+                test_name = test_name or left
+            elif left_is_control and not right_is_control:
+                control_name = control_name or left
+                test_name = test_name or right
+            else:
+                test_name = test_name or left
+                control_name = control_name or right
+            break
+
     return {"control_name": control_name, "test_name": test_name}
 
 
@@ -1425,6 +1520,8 @@ def _should_force_l1000_tool(state: AgentState) -> bool:
     query_norm = query.lower()
     if not query.strip():
         return False
+    if _l1000_pubchem_followup_requested(query):
+        return False
     if any(marker in query_norm for marker in ("pubchem", "primekg", "opentargets", "visualize", "plot", "volcano", "pdb", "druggability")):
         return False
 
@@ -1475,13 +1572,69 @@ def _top_l1000_drug_candidate(state: AgentState) -> dict[str, Any]:
     return {}
 
 
+def _top_l1000_drug_candidates(state: AgentState, *, limit: int = 3) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for key in ("l1000cds2_result", "memory_l1000cds2_result"):
+        result = state.get(key)
+        if not isinstance(result, dict):
+            continue
+        top_drugs = result.get("top_drugs")
+        if not isinstance(top_drugs, list):
+            continue
+        for row in top_drugs:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "").strip()
+            pert_id = str(row.get("pert_id") or "").strip().upper()
+            if not name and not pert_id:
+                continue
+            key_value = pert_id or name.upper()
+            if key_value in seen:
+                continue
+            seen.add(key_value)
+            candidates.append(row)
+            if len(candidates) >= max(1, int(limit)):
+                return candidates
+    return candidates
+
+
+def _l1000_pubchem_followup_requested(text: str | None) -> bool:
+    query = str(text or "").lower()
+    if "l1000" not in query and "connectivity map" not in query and "cmap" not in query:
+        return False
+    if any(marker in query for marker in ("identify compounds", "identify compound", "l1000cds2", "lincs l1000")):
+        return False
+    if not any(marker in query for marker in ("top", "ranked", "best", "hit", "match", "compound", "drug")):
+        return False
+    return any(
+        marker in query
+        for marker in (
+            "mechanism",
+            "mechanism of action",
+            "moa",
+            "target",
+            "targets",
+            "clinical",
+            "therapeutic",
+            "relevance",
+            "summarize",
+            "details",
+            "annotation",
+            "annotations",
+        )
+    )
+
+
 def _should_force_pubchem_tool(state: AgentState) -> bool:
     query = str(state.get("query") or "")
     query_norm = query.lower()
     if not query.strip():
         return False
-    if any(marker in query_norm for marker in ("l1000cds2", "reverse signature", "signature reversal")):
+    if any(marker in query_norm for marker in ("reverse signature", "signature reversal")):
         return False
+    if _l1000_pubchem_followup_requested(query):
+        return bool(_top_l1000_drug_candidate(state) or state.get("pubchem_result") or state.get("memory_pubchem_result"))
     if _pubchem_query_requested(query):
         return True
     if _extract_pert_id_from_query(query):
@@ -1494,6 +1647,10 @@ def _should_force_pubchem_tool(state: AgentState) -> bool:
             "top compound in pubchem",
             "top l1000 compound",
             "top l1000 drug",
+            "top-ranked l1000 compound",
+            "top-ranked l1000 compounds",
+            "top ranked l1000 compound",
+            "top ranked l1000 compounds",
             "top drug in pubchem",
             "pubchem for the top",
             "compound details",
@@ -2709,6 +2866,20 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
             for row in result["candidate_gene_evidence"][:20]
             if isinstance(row, dict)
         ]
+    if isinstance(result.get("literature_dataset_accessions"), list):
+        payload["literature_dataset_accessions"] = [
+            {
+                "accession": row.get("accession"),
+                "database": row.get("database"),
+                "accession_type": row.get("accession_type"),
+                "url": row.get("url"),
+                "evidence": row.get("evidence"),
+                "paper_id": row.get("paper_id"),
+                "paper_title": row.get("paper_title"),
+            }
+            for row in result["literature_dataset_accessions"][:20]
+            if isinstance(row, dict)
+        ]
     if isinstance(result.get("literature_references"), list):
         payload["literature_references"] = [
             {
@@ -2798,6 +2969,26 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
         payload["descriptions"] = result["descriptions"][:5]
     if isinstance(result.get("annotation_lines"), list):
         payload["annotation_lines"] = result["annotation_lines"][:20]
+    if isinstance(result.get("compound_results"), list):
+        payload["source"] = result.get("source")
+        payload["requested_top_n"] = result.get("requested_top_n")
+        payload["compound_count"] = result.get("compound_count")
+        payload["ok_count"] = result.get("ok_count")
+        payload["compound_results"] = [
+            {
+                "status": row.get("status"),
+                "message": row.get("message"),
+                "title": row.get("title"),
+                "cid": row.get("cid"),
+                "drug_name": row.get("drug_name"),
+                "pert_id": row.get("pert_id"),
+                "l1000": row.get("l1000"),
+                "descriptions": row.get("descriptions")[:3] if isinstance(row.get("descriptions"), list) else [],
+                "annotation_lines": row.get("annotation_lines")[:8] if isinstance(row.get("annotation_lines"), list) else [],
+            }
+            for row in result["compound_results"][:5]
+            if isinstance(row, dict)
+        ]
     if isinstance(result.get("fields"), list):
         payload["fields"] = result["fields"][:50]
     if isinstance(result.get("inspections"), list):
@@ -2861,6 +3052,8 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
         payload["srp_metadata"] = [
             {
                 "srp_id": row.get("srp_id"),
+                "dee2_available": row.get("dee2_available"),
+                "dee2_status": row.get("dee2_status"),
                 "dee2_row_count": row.get("dee2_row_count"),
                 "sra_run_count": row.get("sra_run_count"),
                 "geo_series": row.get("geo_series", [])[:10] if isinstance(row.get("geo_series"), list) else [],
@@ -2876,6 +3069,9 @@ def _serialize_tool_result(result: dict[str, Any]) -> dict[str, Any]:
         payload["srp_metadata_result"] = {
             "status": srp_metadata_result.get("status"),
             "srp_ids": srp_metadata_result.get("srp_ids", [])[:20] if isinstance(srp_metadata_result.get("srp_ids"), list) else [],
+            "gse_ids": srp_metadata_result.get("gse_ids", [])[:20] if isinstance(srp_metadata_result.get("gse_ids"), list) else [],
+            "gse_to_srp": srp_metadata_result.get("gse_to_srp", [])[:20] if isinstance(srp_metadata_result.get("gse_to_srp"), list) else [],
+            "dee2_availability": srp_metadata_result.get("dee2_availability", [])[:20] if isinstance(srp_metadata_result.get("dee2_availability"), list) else [],
             "srp_metadata": srp_metadata_result.get("srp_metadata", [])[:5] if isinstance(srp_metadata_result.get("srp_metadata"), list) else [],
         }
     if isinstance(result.get("deg_gene_records"), list):
@@ -3059,7 +3255,7 @@ def _build_system_prompt(state: AgentState) -> str:
             "Gemini/Gemma tool-calling instructions:\n"
             "- Prefer explicit structured tool arguments over leaving values inside prose.\n"
             "- When DEG analysis is needed and any SRP ID plus exact control/test labels are present in the query or memory, call `deg_analysis` immediately.\n"
-            "- If exact control/test labels are missing, call `srp_metadata` first and include the SRP IDs in `srp_ids`.\n"
+            "- If exact control/test labels are missing, call `srp_metadata` first and include the SRP IDs in `srp_ids` when present; keep the full text when the user supplied GSE IDs so they can be resolved.\n"
             "- Put SRP IDs in `srp_ids` as an uppercase JSON array such as [\"SRP277202\",\"SRP123456\"].\n"
             "- Also include `text` with the full user request so downstream normalization can recover cohort labels.\n"
             "- If cohort labels are uncertain, use empty strings instead of inventing them.\n"
@@ -3099,8 +3295,8 @@ def _build_system_prompt(state: AgentState) -> str:
         "- Reuse stored genes, DEG results, disease names, pathway results, and graph state as tool inputs whenever they already satisfy prerequisites.\n"
         "- If a required input is missing, choose the tool that can recover it instead of asking the user unless the gap cannot be inferred or recovered.\n"
         "- For pathway enrichment, prefer stored DEG genes and respect up/down regulation cues.\n"
-        "- For DEG analysis, extract control, test, and SRP identifiers from the query or memory before running the tool.\n"
-        "- If a DEG request has SRP IDs but no exact control/test labels, call `srp_metadata` instead of `deg_analysis`.\n"
+        "- For DEG analysis, extract control, test, and SRP identifiers from the query or memory before running the tool; use `srp_metadata` to resolve GSE IDs to linked SRP IDs first.\n"
+        "- If a DEG request has SRP or GSE IDs but no exact control/test labels, call `srp_metadata` instead of `deg_analysis`.\n"
         "- If SRP IDs are visible in the user request, they must appear in the `deg_analysis.srp_ids` tool argument as a list of strings.\n"
         "- If the user asks about stored memory, state variables, list lengths, or literal stored values, prefer `state_lookup`.\n"
         "- If the user asks for top N or bottom N values from stored state, prefer `memory_slice`.\n"
@@ -3182,6 +3378,8 @@ def _prepare_context(state: AgentState) -> AgentState:
         update["literature_query"] = str(state.get("literature_query") or "")
     if state.get("candidate_gene_evidence") is not None:
         update["candidate_gene_evidence"] = list(state.get("candidate_gene_evidence") or [])
+    if state.get("literature_dataset_accessions") is not None:
+        update["literature_dataset_accessions"] = list(state.get("literature_dataset_accessions") or [])
     if state.get("l1000cds2_result") is not None:
         update["l1000cds2_result"] = _ensure_dict(state.get("l1000cds2_result"))
     if state.get("pubchem_result") is not None:
@@ -3302,6 +3500,35 @@ def _agent(state: AgentState) -> AgentState:
             "step_count": int(state.get("step_count") or 0) + 1,
         }
 
+    if _should_force_research_literature_tool(state):
+        query_text = str(state.get("query") or "")
+        requested_top_n = _parse_top_n_from_text(query_text)
+        forced_genes = [
+            str(value).strip().upper()
+            for value in extract_genes_from_text(query_text, mode="strict")
+            if str(value).strip()
+        ]
+        if not forced_genes:
+            forced_genes = _memory_slice_gene_candidates(state)
+        if not forced_genes:
+            forced_genes = _literature_state_gene_candidates(state, limit=requested_top_n or 12)
+        forced_call = {
+            "name": "research_literature",
+            "args": {
+                "user_query": query_text,
+                "disease_name": str(state.get("disease_name") or state.get("memory_disease_name") or ""),
+                "genes": forced_genes,
+                "top_n": requested_top_n or 20,
+            },
+            "id": "forced_research_literature_call",
+            "type": "tool_call",
+        }
+        response = AIMessage(content="", tool_calls=[forced_call])
+        return {
+            "messages": [response],
+            "step_count": int(state.get("step_count") or 0) + 1,
+        }
+
     if _should_force_stored_pathway_visualization(state):
         query_text = str(state.get("query") or "")
         forced_call = {
@@ -3384,7 +3611,6 @@ def _agent(state: AgentState) -> AgentState:
             "args": {
                 "cell_lines": _extract_cell_lines_from_text(query_text),
                 "aggravate": _l1000_mode_from_query(query_text),
-                "gene_limit": _parse_top_n_from_text(query_text) or 500,
                 "result_limit": _parse_top_n_from_text(query_text) or 20,
                 "text": query_text,
             },
@@ -3405,6 +3631,8 @@ def _agent(state: AgentState) -> AgentState:
             "args": {
                 "drug_name": _extract_drug_name_from_query(query_text) or str(top_l1000_drug.get("name") or ""),
                 "pert_id": _extract_pert_id_from_query(query_text) or str(top_l1000_drug.get("pert_id") or ""),
+                "from_l1000_top": _l1000_pubchem_followup_requested(query_text),
+                "top_n": _parse_top_n_from_text(query_text) or 3,
                 "text": query_text,
             },
             "id": "forced_pubchem_call",
@@ -3513,30 +3741,6 @@ def _agent(state: AgentState) -> AgentState:
                 "text": str(state.get("query") or ""),
             },
             "id": "forced_hypothesis_call",
-            "type": "tool_call",
-        }
-        response = AIMessage(content="", tool_calls=[forced_call])
-        return {
-            "messages": [response],
-            "step_count": int(state.get("step_count") or 0) + 1,
-        }
-
-    if _should_force_research_literature_tool(state):
-        query_text = str(state.get("query") or "")
-        forced_genes = [
-            str(value).strip().upper()
-            for value in extract_genes_from_text(query_text, mode="strict")
-            if str(value).strip()
-        ]
-        forced_call = {
-            "name": "research_literature",
-            "args": {
-                "user_query": query_text,
-                "disease_name": str(state.get("disease_name") or state.get("memory_disease_name") or ""),
-                "genes": forced_genes,
-                "top_n": _parse_top_n_from_text(query_text) or 20,
-            },
-            "id": "forced_research_literature_call",
             "type": "tool_call",
         }
         response = AIMessage(content="", tool_calls=[forced_call])
@@ -3796,17 +4000,11 @@ def _resolve_l1000_gene_lists(
     if up_genes and down_genes:
         return list(dict.fromkeys(up_genes)), list(dict.fromkeys(down_genes)), "tool_args"
 
-    gene_limit = args.get("gene_limit")
-    if isinstance(gene_limit, str) and gene_limit.isdigit():
-        gene_limit = int(gene_limit)
-    if not isinstance(gene_limit, int) or gene_limit <= 0:
-        gene_limit = 500
-
     records = _memory_slice_deg_records(state) or state.get("deg_gene_records") or state.get("memory_deg_gene_records")
     if records:
         return (
-            _genes_from_deg_records_by_direction(records, direction="up", top_n=gene_limit),
-            _genes_from_deg_records_by_direction(records, direction="down", top_n=gene_limit),
+            _genes_from_deg_records_by_direction(records, direction="up"),
+            _genes_from_deg_records_by_direction(records, direction="down"),
             "memory_slice" if _memory_slice_deg_records(state) else "stored_deg_genes",
         )
 
@@ -3826,6 +4024,9 @@ def _resolve_l1000_gene_lists(
 def _run_l1000cds2_query(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("text") or state.get("query") or "")
     up_genes, down_genes, gene_set_source = _resolve_l1000_gene_lists(state, args, query=query)
+    print("[l1000cds2_query] gene_set_source:", gene_set_source)
+    print(f"[l1000cds2_query] resolved up_genes ({len(up_genes)}): {up_genes}")
+    print(f"[l1000cds2_query] resolved down_genes ({len(down_genes)}): {down_genes}")
 
     cell_lines_arg = args.get("cell_lines")
     cell_lines = [str(value).strip().upper() for value in cell_lines_arg if str(value).strip()] if isinstance(cell_lines_arg, list) else []
@@ -3858,6 +4059,48 @@ def _run_l1000cds2_query(state: AgentState, args: dict[str, Any]) -> dict[str, A
 
 def _run_pubchem_drug_lookup(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("text") or state.get("query") or "")
+    top_n = args.get("top_n")
+    if top_n is None:
+        top_n = _parse_top_n_from_text(query)
+    if isinstance(top_n, str) and top_n.isdigit():
+        top_n = int(top_n)
+    if not isinstance(top_n, int) or top_n <= 0:
+        top_n = 3
+    top_n = min(top_n, 5)
+
+    if bool(args.get("from_l1000_top")) or _l1000_pubchem_followup_requested(query):
+        candidates = _top_l1000_drug_candidates(state, limit=top_n)
+        if candidates:
+            compound_results: list[dict[str, Any]] = []
+            for candidate in candidates:
+                drug_name = str(candidate.get("name") or "").strip()
+                pert_id = str(candidate.get("pert_id") or "").strip().upper()
+                result = query_pubchem_drug(drug_name=drug_name, pert_id=pert_id)
+                result["l1000"] = {
+                    "name": drug_name,
+                    "pert_id": pert_id,
+                    "best_rank": candidate.get("best_rank"),
+                    "best_score": candidate.get("best_score"),
+                    "cell_lines": candidate.get("cell_lines"),
+                    "signature_count": candidate.get("signature_count"),
+                }
+                compound_results.append(result)
+            ok_count = sum(1 for result in compound_results if result.get("status") == "ok")
+            return {
+                "status": "ok" if ok_count else "not_found",
+                "analysis_arm": "pubchem",
+                "source": "l1000cds2_top_drugs",
+                "requested_top_n": top_n,
+                "compound_count": len(compound_results),
+                "ok_count": ok_count,
+                "compound_results": compound_results,
+                "message": (
+                    f"Retrieved PubChem data for {ok_count} of {len(compound_results)} top L1000CDS2 compounds."
+                    if ok_count
+                    else "PubChem did not return usable records for the selected top L1000CDS2 compounds."
+                ),
+            }
+
     drug_name = " ".join(str(args.get("drug_name") or "").split()).strip()
     pert_id = " ".join(str(args.get("pert_id") or "").split()).strip().upper()
     if not pert_id:
@@ -4009,6 +4252,7 @@ def _run_fetch_openalex(state: AgentState, args: dict[str, Any]) -> dict[str, An
         "ranked_openalex_papers": openalex_result.get("ranked_papers", []),
         "openalex_genes": genes,
         "literature_key_points": openalex_result.get("key_points", []),
+        "literature_dataset_accessions": openalex_result.get("dataset_accessions", []),
         "literature_references": openalex_result.get("references", []),
         "literature_summary": openalex_result.get("literature_summary", ""),
         "literature_source_status": openalex_result.get("source_status", {}),
@@ -4055,15 +4299,26 @@ def _run_hypothesis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
 
 def _run_research_literature(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
     user_query = str(args.get("user_query") or args.get("text") or state.get("query") or "").strip()
-    genes = args.get("genes")
-    if not isinstance(genes, list) or not genes:
-        sliced_genes = _memory_slice_gene_candidates(state)
-        genes = sliced_genes if sliced_genes else _literature_state_gene_candidates(state)
     top_n = args.get("top_n")
     if top_n is None:
         top_n = _parse_top_n_from_text(user_query)
     if isinstance(top_n, str) and top_n.isdigit():
         top_n = int(top_n)
+    genes = args.get("genes")
+    if not isinstance(genes, list) or not genes:
+        sliced_genes = _memory_slice_gene_candidates(state)
+        genes = sliced_genes
+        if not genes and _memory_gene_query_requested(user_query):
+            genes = _stored_deg_genes_by_direction(
+                state,
+                direction=_deg_direction_from_query(user_query),
+                top_n=top_n if isinstance(top_n, int) and top_n > 0 else None,
+            )
+        if not genes:
+            genes = _literature_state_gene_candidates(
+                state,
+                limit=top_n if isinstance(top_n, int) and top_n > 0 else 12,
+            )
     if not isinstance(top_n, int) or top_n <= 0:
         top_n = len(genes) if isinstance(genes, list) and genes else 20
     result = run_publication_research_assistant_safe(
@@ -4181,9 +4436,12 @@ def _run_deg_analysis(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
         (row for row in display_rows if _safe_float(row.get("log2FoldChange")) < 0),
         key=lambda row: _safe_float(row.get("log2FoldChange")),
     )
+    ranked_rows = _rank_deg_records_by_padj_and_fold_change(display_rows)
     deg_result["all_rows"] = all_display_rows
     deg_result["rows"] = display_rows
     deg_result["filtered_rows"] = display_rows
+    deg_result["ranked_rows"] = ranked_rows
+    deg_result["ranking"] = "padj ascending, then absolute log2FoldChange descending"
     deg_result["upregulated_rows"] = upregulated_rows
     deg_result["downregulated_rows"] = downregulated_rows
     deg_result["genes"] = deg_genes
@@ -4219,11 +4477,12 @@ def _run_srp_metadata(state: AgentState, args: dict[str, Any]) -> dict[str, Any]
     srp_ids = _normalize_srp_ids(args.get("srp_ids"))
     if not srp_ids:
         srp_ids = _normalize_srp_ids(state.get("srp_ids"))
+    text = str(args.get("text") or state.get("query") or "")
     if not srp_ids:
-        srp_ids = _normalize_srp_ids(args.get("text") or state.get("query") or "")
+        srp_ids = _normalize_srp_ids(text)
     return fetch_srp_metadata_summary_safe(
         srp_ids=srp_ids,
-        text=str(args.get("text") or state.get("query") or ""),
+        text=text,
         species=str(args.get("species") or "hsapiens"),
         max_dee2_rows=int(args.get("max_dee2_rows") or 5000),
         max_biosamples=int(args.get("max_biosamples") or 80),
@@ -4786,7 +5045,6 @@ def _visualization_answer(result: dict[str, Any]) -> str:
         edge_count = int(result.get("visualized_edge_count") or 0)
         seed_count = len(result.get("seed_genes") or [])
         target_count = len(result.get("top_targets") or [])
-        html_path = str(result.get("pyvis_html_path") or "").strip()
         parts = [
             "Successfully generated the interactive network visualization.",
         ]
@@ -4796,25 +5054,18 @@ def _visualization_answer(result: dict[str, Any]) -> str:
             parts.append(f"Seed genes highlighted: {seed_count}.")
         if target_count:
             parts.append(f"RWR result genes highlighted: {target_count}.")
-        if html_path:
-            parts.append(f"Output saved to: {html_path}.")
         return " ".join(parts)
 
     if visualization_type == "kegg":
-        path = str(result.get("kegg_pathway_path") or "").strip()
-        message = "Successfully generated the KEGG pathway visualization."
-        return f"{message} Output saved to: {path}." if path else message
+        return "Successfully generated the KEGG pathway visualization."
 
     if visualization_type == "volcano":
-        path = str(result.get("volcano_plot_path") or "").strip()
         points = int(result.get("points") or 0)
         message = "Successfully generated the DEG volcano plot."
         detail = f" Points plotted: {points}." if points else ""
-        suffix = f" Output saved to: {path}." if path else ""
-        return f"{message}{detail}{suffix}"
+        return f"{message}{detail}"
 
-    message = "Successfully generated the requested visualization."
-    return f"{message} Output saved to: {output_path}." if output_path else message
+    return "Successfully generated the requested visualization."
 
 
 def _run_synthesize(state: AgentState, args: dict[str, Any]) -> dict[str, Any]:
@@ -4934,13 +5185,14 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
             result = _execute_tool_runner("run_deg_r_analysis", lambda: _run_deg_analysis(state, args))
             update = _specialist_history_update(state, "run_deg_r_analysis", args, result)
             update = {**update, **result}
+            thresholded_records = list(result.get("deg_gene_records") or [])
             update["memory_control_name"] = str(result.get("control_name") or "")
             update["memory_test_name"] = str(result.get("test_name") or "")
             update["memory_deg_analysis"] = _ensure_dict(result.get("deg_analysis"))
-            update["memory_deg_genes"] = list(result.get("deg_genes") or [])
-            update["memory_upregulated_genes"] = list(result.get("upregulated_genes") or [])
-            update["memory_downregulated_genes"] = list(result.get("downregulated_genes") or [])
-            update["memory_deg_gene_records"] = list(result.get("deg_gene_records") or [])
+            update["memory_deg_genes"] = _genes_from_deg_records_by_direction(thresholded_records, direction="all")
+            update["memory_upregulated_genes"] = _genes_from_deg_records_by_direction(thresholded_records, direction="up")
+            update["memory_downregulated_genes"] = _genes_from_deg_records_by_direction(thresholded_records, direction="down")
+            update["memory_deg_gene_records"] = thresholded_records
             state = {**state, **update}
             return {**state, **result, "analysis_arm": "srp", "messages": _tool_observations(state, call, tool_name, result)}
 
@@ -4986,7 +5238,7 @@ def _specialist_node(tool_name: str) -> Callable[[AgentState], AgentState]:
                     if visualization_result.get("status") == "ok":
                         update["message"] = (
                             f"{str(rwr_result.get('message') or '').strip()} "
-                            f"Generated network visualization at {visualization_result.get('pyvis_html_path')}."
+                            "Generated network visualization successfully."
                         ).strip()
                 except Exception as exc:
                     update["visualization_result"] = {
@@ -5305,6 +5557,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "ranked_openalex_papers": list(state.get("ranked_openalex_papers") or []),
                 "openalex_genes": list(state.get("openalex_genes") or []),
                 "literature_key_points": list(state.get("literature_key_points") or []),
+                "literature_dataset_accessions": list(state.get("literature_dataset_accessions") or []),
                 "literature_references": list(state.get("literature_references") or []),
                 "literature_summary": str(state.get("literature_summary") or ""),
                 "literature_source_status": _ensure_dict(state.get("literature_source_status")),
@@ -5381,6 +5634,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "openalex_papers": list(state.get("openalex_papers") or []),
                 "ranked_openalex_papers": list(state.get("ranked_openalex_papers") or []),
                 "literature_key_points": list(state.get("literature_key_points") or []),
+                "literature_dataset_accessions": list(state.get("literature_dataset_accessions") or []),
                 "literature_references": list(state.get("literature_references") or []),
                 "literature_summary": str(state.get("literature_summary") or ""),
                 "literature_source_status": _ensure_dict(state.get("literature_source_status")),
@@ -5406,6 +5660,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "openalex_papers": [],
                 "ranked_openalex_papers": [],
                 "literature_key_points": list(state.get("literature_key_points") or []),
+                "literature_dataset_accessions": list(state.get("literature_dataset_accessions") or []),
                 "literature_references": list(state.get("literature_references") or []),
                 "literature_summary": str(state.get("literature_summary") or answer or ""),
                 "literature_source_status": _ensure_dict(state.get("literature_source_status")),
@@ -5469,6 +5724,7 @@ def _finalize(state: AgentState) -> AgentState:
                 "ranked_openalex_papers": list(state.get("ranked_openalex_papers") or []),
                 "openalex_genes": list(state.get("openalex_genes") or []),
                 "literature_key_points": list(state.get("literature_key_points") or []),
+                "literature_dataset_accessions": list(state.get("literature_dataset_accessions") or []),
                 "literature_references": list(state.get("literature_references") or []),
                 "literature_summary": str(state.get("literature_summary") or ""),
                 "literature_source_status": _ensure_dict(state.get("literature_source_status")),
@@ -5607,6 +5863,7 @@ def _finalize(state: AgentState) -> AgentState:
         "ranked_openalex_papers": list(state.get("ranked_openalex_papers") or []),
         "openalex_genes": list(state.get("openalex_genes") or []),
         "literature_key_points": list(state.get("literature_key_points") or []),
+        "literature_dataset_accessions": list(state.get("literature_dataset_accessions") or []),
         "literature_references": list(state.get("literature_references") or []),
         "literature_summary": str(state.get("literature_summary") or ""),
         "literature_source_status": _ensure_dict(state.get("literature_source_status")),
@@ -5721,7 +5978,7 @@ TOOL_SCHEMAS = [
     )(lambda disease_name="", genes=None, top_n=20, text=None: {"disease_name": disease_name, "genes": list(genes or []), "top_n": int(top_n), "text": text}),
     tool(
         "research_literature",
-        description="Generate a literature-style answer with references from model knowledge. Parameters: `user_query`, optional `disease_name`, `genes`, `top_n`. Use for broad research, investigate, review, explain, summarize, overview, or what-is-known-about requests that do not ask to find/search/check evidence for a specific statement and do not explicitly request PubMed/OpenAlex/Google Scholar/paper search. Does not perform live retrieval; references are best-effort and should not be described as newly searched or verified.",
+        description="Generate a literature-style answer with references. Parameters: `user_query`, optional `disease_name`, `genes`, `top_n`. Use for broad research, investigate, review, explain, summarize, overview, dataset-availability, or what-is-known-about requests. It first attempts the configured OpenAlex/PubMed/Google Scholar retrieval pipeline and synthesizes retrieved titles/abstracts; if retrieval fails, it falls back to model knowledge and marks references unverified.",
         return_direct=False,
     )(lambda user_query, disease_name="", genes=None, top_n=20: {"user_query": user_query, "disease_name": disease_name, "genes": list(genes or []), "top_n": int(top_n)}),
     tool(
@@ -5761,11 +6018,11 @@ TOOL_SCHEMAS = [
     tool(
         "srp_metadata",
         description="""
-        Retrieve DEE2/SRA metadata for SRP accessions before DEG analysis.
+        Retrieve DEE2/SRA metadata for SRP accessions, or GSE accessions that resolve to linked SRP accessions, before DEG analysis.
 
         Args:
             srp_ids: List of SRP accessions such as ["SRP277202"].
-            text: Optional full user request containing SRP IDs.
+            text: Optional full user request containing SRP or GSE IDs.
             species: DEE2 species key; defaults to hsapiens.
             max_dee2_rows: Maximum matching DEE2 rows to keep.
             max_biosamples: Maximum BioSample records to inspect.
@@ -5921,10 +6178,10 @@ TOOL_SCHEMAS = [
     )(lambda gene=None, genes=None, disease=None, disease_name=None: {"gene": gene or "", "genes": list(genes or []), "disease": disease or disease_name or ""}),
     tool(
         "l1000cds2_query",
-        description="Query L1000CDS2 for small-molecule reversal/mimic signatures using separate up-regulated and down-regulated gene lists. Parameters: `up_genes`, `down_genes`, optional `cell_lines`, `aggravate` for mimic mode, `combination`, `share`, `db_version`, `gene_limit`, `result_limit`, `text`. Use this for L1000CDS2, L1000, CMap/connectivity-map style signature reversal, drug-repurposing, small-molecule match, or compound-match requests when stored DEG directions or explicit up/down lists are available. Default is reversal mode. Do not use PubChem for signature reversal; use PubChem only after a named compound/top L1000 hit is selected.",
+        description="Query L1000CDS2 for small-molecule reversal/mimic signatures using the full separate up-regulated and down-regulated gene lists. Parameters: `up_genes`, `down_genes`, optional `cell_lines`, `aggravate` for mimic mode, `combination`, `share`, `db_version`, `result_limit`, `text`. Use this for L1000CDS2, L1000, CMap/connectivity-map style signature reversal, drug-repurposing, small-molecule match, or compound-match requests when stored DEG directions or explicit up/down lists are available. Default is reversal mode. `top N` should affect only `result_limit`, never the input gene lists. Do not use PubChem for signature reversal; use PubChem only after a named compound/top L1000 hit is selected.",
         return_direct=False,
     )(
-        lambda up_genes=None, down_genes=None, cell_lines=None, aggravate=None, combination=False, share=False, db_version="latest", gene_limit=500, result_limit=20, text=None: {
+        lambda up_genes=None, down_genes=None, cell_lines=None, aggravate=None, combination=False, share=False, db_version="latest", result_limit=20, text=None: {
             "up_genes": list(up_genes or []),
             "down_genes": list(down_genes or []),
             "cell_lines": list(cell_lines or []),
@@ -5932,19 +6189,20 @@ TOOL_SCHEMAS = [
             "combination": combination,
             "share": share,
             "db_version": db_version,
-            "gene_limit": gene_limit,
             "result_limit": result_limit,
             "text": text,
         }
     ),
     tool(
         "pubchem_drug_lookup",
-        description="Query PubChem for a named drug/compound, `pert_desc`, BRD-like `pert_id`, or the selected top L1000CDS2 hit. Parameters: `drug_name`, `pert_id`, `text`. Use for compound properties, synonyms, descriptions, annotations, and PubChem lookup follow-ups after L1000CDS2. Genes/pathways/diseases may be mentioned only when supported by PubChem text. Cannot run L1000 signature reversal, target validation, clinical efficacy analysis, or non-compound biomedical graph queries.",
+        description="Query PubChem for a named drug/compound, `pert_desc`, BRD-like `pert_id`, or stored top L1000CDS2 hits. Parameters: `drug_name`, `pert_id`, `text`, `from_l1000_top`, `top_n`. Use for compound properties, synonyms, descriptions, annotations, and L1000 follow-ups asking for mechanism of action, biological targets, clinical status, or therapeutic relevance. Genes/pathways/diseases/mechanisms/targets/clinical status may be mentioned only when supported by PubChem text. Cannot run L1000 signature reversal, target validation, clinical efficacy analysis, or non-compound biomedical graph queries.",
         return_direct=False,
     )(
-        lambda drug_name=None, pert_id=None, text=None: {
+        lambda drug_name=None, pert_id=None, text=None, from_l1000_top=False, top_n=None: {
             "drug_name": drug_name or "",
             "pert_id": pert_id or "",
+            "from_l1000_top": from_l1000_top,
+            "top_n": top_n,
             "text": text,
         }
     ),

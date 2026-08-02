@@ -10,10 +10,11 @@ from typing import Any
 from gea_agent.config import SETTINGS
 from gea_agent.tools.http_utils import get_retrying_session
 from gea_agent.tools.result_utils import sanitize_exception_message, tool_error_result
-from gea_agent.tools.srp_ids import extract_srp_ids_from_text
+from gea_agent.tools.srp_ids import extract_gse_ids_from_text, extract_srp_ids_from_text
 
 
 DEE2_METADATA_URL = "https://www.dee2.io/metadata/{species}_metadata.tsv"
+GEO_ACCESSION_URL = "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi"
 SRA_RUNINFO_URL = "https://trace.ncbi.nlm.nih.gov/Traces/sra-db-be/runinfo"
 BIOSAMPLE_ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 BIOSAMPLE_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -33,6 +34,61 @@ def _normalize_srp_ids(value: Any) -> list[str]:
         if re.fullmatch(r"SRP\d+", srp_id) and srp_id not in normalized:
             normalized.append(srp_id)
     return normalized
+
+
+def _normalize_gse_ids(value: Any) -> list[str]:
+    if isinstance(value, list):
+        raw_values = value
+    elif isinstance(value, str):
+        raw_values = extract_gse_ids_from_text(value)
+    else:
+        raw_values = []
+
+    normalized: list[str] = []
+    for value in raw_values:
+        gse_id = str(value or "").strip().upper()
+        if re.fullmatch(r"GSE\d+", gse_id) and gse_id not in normalized:
+            normalized.append(gse_id)
+    return normalized
+
+
+def _fetch_geo_accession_text(gse_id: str) -> tuple[str, dict[str, Any]]:
+    response = get_retrying_session().get(
+        GEO_ACCESSION_URL,
+        params={"acc": gse_id},
+        timeout=SETTINGS.http_timeout_seconds,
+    )
+    if response.status_code >= 400:
+        return "", {
+            "status": "http_error",
+            "gse_id": gse_id,
+            "status_code": response.status_code,
+        }
+    return response.text or "", {
+        "status": "ok",
+        "gse_id": gse_id,
+        "url": getattr(response, "url", "") or GEO_ACCESSION_URL,
+    }
+
+
+def _resolve_gse_ids_to_srp_ids(gse_ids: list[str]) -> tuple[list[str], list[dict[str, Any]]]:
+    resolved: list[str] = []
+    mappings: list[dict[str, Any]] = []
+    for gse_id in gse_ids:
+        text, status = _fetch_geo_accession_text(gse_id)
+        srp_ids = _normalize_srp_ids(text)
+        for srp_id in srp_ids:
+            if srp_id not in resolved:
+                resolved.append(srp_id)
+        mappings.append(
+            {
+                "gse_id": gse_id,
+                "srp_ids": srp_ids,
+                "status": "ok" if srp_ids else "not_found",
+                "source_status": status,
+            }
+        )
+    return resolved, mappings
 
 
 def _compact_text(value: Any, *, limit: int = 240) -> str:
@@ -220,6 +276,33 @@ def _format_metadata_answer(result: dict[str, Any]) -> str:
         return str(result.get("message") or "SRP metadata could not be retrieved.").strip()
 
     lines: list[str] = ["**SRP Metadata Preview**"]
+    gse_mappings = result.get("gse_to_srp")
+    if isinstance(gse_mappings, list) and gse_mappings:
+        lines.append("Resolved GEO/GSE accessions to SRA project IDs before fetching metadata.")
+        for mapping in gse_mappings:
+            if not isinstance(mapping, dict):
+                continue
+            gse_id = str(mapping.get("gse_id") or "").strip()
+            srp_ids = mapping.get("srp_ids") if isinstance(mapping.get("srp_ids"), list) else []
+            if gse_id and srp_ids:
+                dee2_status = str(mapping.get("dee2_status") or "").strip()
+                suffix = f" (DEE2: {dee2_status})" if dee2_status else ""
+                lines.append(f"- {gse_id} -> {', '.join(str(value) for value in srp_ids)}{suffix}")
+            elif gse_id:
+                lines.append(f"- {gse_id} -> no linked SRP accession found")
+        lines.append("")
+    dee2_availability = result.get("dee2_availability")
+    if isinstance(dee2_availability, list) and dee2_availability:
+        lines.append("DEE2 availability:")
+        for row in dee2_availability:
+            if not isinstance(row, dict):
+                continue
+            srp_id = str(row.get("srp_id") or "").strip()
+            status = str(row.get("dee2_status") or "").strip() or "not_found"
+            count = row.get("dee2_row_count", 0)
+            if srp_id:
+                lines.append(f"- {srp_id}: {status} ({count} DEE2 row(s))")
+        lines.append("")
     lines.append(
         "I found metadata that can help you choose the exact DEG comparison labels. "
         "Use one value from the listed fields as `control_name` and one as `test_name` when you run DEG analysis."
@@ -232,7 +315,7 @@ def _format_metadata_answer(result: dict[str, Any]) -> str:
         lines.append("")
         lines.append(f"**{srp_id}**")
         lines.append(
-            f"DEE2 rows: {srp_result.get('dee2_row_count', 0)}; "
+            f"DEE2: {srp_result.get('dee2_status', 'not_found')} ({srp_result.get('dee2_row_count', 0)} row(s)); "
             f"SRA runs: {srp_result.get('sra_run_count', 0)}"
         )
         geo_series = srp_result.get("geo_series")
@@ -301,15 +384,28 @@ def fetch_srp_metadata_summary(
     max_dee2_rows: int = 5000,
     max_biosamples: int = 80,
 ) -> dict[str, Any]:
-    resolved_srp_ids = _normalize_srp_ids(srp_ids or []) or _normalize_srp_ids(text or "")
+    direct_srp_ids = _normalize_srp_ids(srp_ids or []) or _normalize_srp_ids(text or "")
+    gse_ids = _normalize_gse_ids(text or "")
+    resolved_from_gse, gse_to_srp = _resolve_gse_ids_to_srp_ids(gse_ids) if gse_ids else ([], [])
+    resolved_srp_ids: list[str] = []
+    for srp_id in [*direct_srp_ids, *resolved_from_gse]:
+        if srp_id not in resolved_srp_ids:
+            resolved_srp_ids.append(srp_id)
     if not resolved_srp_ids:
+        identifier_message = (
+            "No SRP IDs were provided for metadata discovery, and no linked SRP IDs could be resolved from the supplied GSE IDs."
+            if gse_ids
+            else "No SRP IDs were provided for metadata discovery."
+        )
         return {
             "status": "no_srp_ids",
             "analysis_arm": "srp_metadata",
             "srp_ids": [],
+            "gse_ids": gse_ids,
+            "gse_to_srp": gse_to_srp,
             "srp_metadata": [],
-            "message": "No SRP IDs were provided for metadata discovery.",
-            "answer": "No SRP IDs were provided for metadata discovery.",
+            "message": identifier_message,
+            "answer": identifier_message,
             "should_finalize": True,
         }
 
@@ -332,6 +428,8 @@ def fetch_srp_metadata_summary(
     srp_metadata: list[dict[str, Any]] = []
     for srp_id in resolved_srp_ids:
         srp_dee2_rows = dee2_by_srp.get(srp_id, [])
+        dee2_available = bool(srp_dee2_rows)
+        srp_dee2_status = "present" if dee2_available else "not_found"
         dee2_runs = {
             str(row.get("SRR_accession") or "").strip().upper()
             for row in srp_dee2_rows
@@ -429,6 +527,8 @@ def fetch_srp_metadata_summary(
         srp_metadata.append(
             {
                 "srp_id": srp_id,
+                "dee2_available": dee2_available,
+                "dee2_status": srp_dee2_status,
                 "dee2_row_count": len(srp_dee2_rows),
                 "sra_run_count": len(runinfo_rows),
                 "bio_sample_count": len(biosample_values),
@@ -459,13 +559,44 @@ def fetch_srp_metadata_summary(
             }
         )
 
+    dee2_availability = [
+        {
+            "srp_id": str(row.get("srp_id") or ""),
+            "dee2_available": bool(row.get("dee2_available")),
+            "dee2_status": str(row.get("dee2_status") or "not_found"),
+            "dee2_row_count": int(row.get("dee2_row_count") or 0),
+        }
+        for row in srp_metadata
+        if isinstance(row, dict)
+    ]
+    dee2_by_resolved_srp = {row["srp_id"]: row for row in dee2_availability if row.get("srp_id")}
+    for mapping in gse_to_srp:
+        if not isinstance(mapping, dict):
+            continue
+        mapped_srp_ids = mapping.get("srp_ids") if isinstance(mapping.get("srp_ids"), list) else []
+        mapped_presence = [
+            dee2_by_resolved_srp.get(str(srp_id or "").strip().upper(), {
+                "srp_id": str(srp_id or "").strip().upper(),
+                "dee2_available": False,
+                "dee2_status": "not_found",
+                "dee2_row_count": 0,
+            })
+            for srp_id in mapped_srp_ids
+        ]
+        mapping["dee2_status_by_srp"] = mapped_presence
+        mapping["dee2_available"] = any(row.get("dee2_available") for row in mapped_presence)
+        mapping["dee2_status"] = "present" if mapping["dee2_available"] else "not_found"
+
     status = "ok" if any(row.get("dee2_row_count") or row.get("sra_run_count") for row in srp_metadata) else "not_found"
     result: dict[str, Any] = {
         "status": status,
         "analysis_arm": "srp_metadata",
         "srp_ids": resolved_srp_ids,
+        "gse_ids": gse_ids,
+        "gse_to_srp": gse_to_srp,
         "species": species,
         "dee2_source": dee2_status,
+        "dee2_availability": dee2_availability,
         "srp_metadata": srp_metadata,
         "message": (
             "Fetched SRP metadata for cohort-label discovery."
@@ -500,6 +631,7 @@ def fetch_srp_metadata_summary_safe(
             f"SRP metadata discovery failed: {sanitize_exception_message(exc)}",
             analysis_arm="srp_metadata",
             srp_ids=_normalize_srp_ids(srp_ids or []) or _normalize_srp_ids(text or ""),
+            gse_ids=_normalize_gse_ids(text or ""),
             srp_metadata=[],
             should_finalize=True,
         )

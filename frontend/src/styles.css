@@ -744,6 +744,10 @@ button:disabled {
   grid-template-columns: minmax(220px, 2fr) minmax(60px, 0.45fr) minmax(74px, 0.55fr) minmax(120px, 0.9fr);
 }
 
+.technical-row-accessions {
+  grid-template-columns: minmax(110px, 0.9fr) minmax(110px, 0.9fr) minmax(100px, 0.8fr) minmax(72px, 0.55fr) minmax(220px, 1.7fr);
+}
+
 .technical-head {
   color: var(--text-muted);
   text-transform: uppercase;
@@ -1077,6 +1081,7 @@ button:disabled {
   .technical-row-drug,
   .technical-row-lit,
   .technical-row-lit-clean,
+  .technical-row-accessions,
   .trace-kv-row {
     grid-template-columns: 1fr;
   }

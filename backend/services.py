@@ -613,6 +613,7 @@ def _message_display_meta(meta: dict[str, Any]) -> dict[str, Any]:
             "openalex_papers",
             "ranked_openalex_papers",
             "literature_key_points",
+            "literature_dataset_accessions",
             "literature_references",
             "literature_summary",
         ),
@@ -621,6 +622,7 @@ def _message_display_meta(meta: dict[str, Any]) -> dict[str, Any]:
             "openalex_papers",
             "ranked_openalex_papers",
             "literature_key_points",
+            "literature_dataset_accessions",
             "literature_references",
             "literature_summary",
         ),
@@ -629,6 +631,7 @@ def _message_display_meta(meta: dict[str, Any]) -> dict[str, Any]:
             "openalex_papers",
             "ranked_openalex_papers",
             "literature_key_points",
+            "literature_dataset_accessions",
             "literature_references",
             "literature_summary",
         ),
@@ -641,11 +644,39 @@ def _message_display_meta(meta: dict[str, Any]) -> dict[str, Any]:
         "druggability": ("druggability_result",),
         "pdb_visualizer": ("pdb_visualization_result",),
     }
+    allowed_by_tool: dict[str, tuple[str, ...]] = {
+        "run_deg_r_analysis": allowed_by_arm["srp"],
+        "deg_analysis": allowed_by_arm["srp"],
+        "srp_metadata": allowed_by_arm["srp_metadata"],
+        "enrichr_pathways": allowed_by_arm["pathway"],
+        "pathway": allowed_by_arm["pathway"],
+        "rwr_analysis": allowed_by_arm["memory_rwr"],
+        "build_weighted_graph_from_string_files": ("network", "graphml_path"),
+        "top_rwr_genes": allowed_by_arm["memory_rwr"],
+        "visualize": allowed_by_arm["visualize"],
+        "fetch_openalex_papers_and_genes": allowed_by_arm["literature"],
+        "literature": allowed_by_arm["literature"],
+        "research_literature": allowed_by_arm["research_literature"],
+        "run_literature_agent": allowed_by_arm["research_literature"],
+        "primekg_query": allowed_by_arm["primekg"],
+        "opentargets_association": allowed_by_arm["opentargets"],
+        "l1000cds2_query": allowed_by_arm["l1000cds2"],
+        "pubchem_drug_lookup": allowed_by_arm["pubchem"],
+        "hypothesis": allowed_by_arm["hypothesis"],
+        "druggability": allowed_by_arm["druggability"],
+        "pdb_visualizer": allowed_by_arm["pdb_visualizer"],
+        "memory_lookup": ("memory_lookup_result",),
+        "state_lookup": ("state_lookup_result",),
+        "memory_slice": ("memory_slice_result",),
+    }
 
-    for key in allowed_by_arm.get(analysis_arm, ()):
-        value = meta.get(key)
-        if value not in (None, "", [], {}):
-            display[key] = value
+    def include_keys(keys: tuple[str, ...]) -> None:
+        for key in keys:
+            value = meta.get(key)
+            if value not in (None, "", [], {}):
+                display[key] = value
+
+    include_keys(allowed_by_arm.get(analysis_arm, ()))
 
     tool_history = meta.get("tool_history")
     tool_names = {
@@ -653,6 +684,9 @@ def _message_display_meta(meta: dict[str, Any]) -> dict[str, Any]:
         for entry in tool_history
         if isinstance(entry, dict)
     } if isinstance(tool_history, list) else set()
+    for tool_name in tool_names:
+        include_keys(allowed_by_tool.get(tool_name, ()))
+
     if tool_names.intersection({"top_rwr_genes", "rwr_analysis"}) and meta.get("rwr_genes"):
         display["rwr_genes"] = meta.get("rwr_genes")
         display["rwr_result_is_current"] = True

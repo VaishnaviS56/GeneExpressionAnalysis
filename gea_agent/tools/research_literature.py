@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from gea_agent.tools.extract_genes import extract_genes_from_text
+from gea_agent.tools.disease_literature import fetch_openalex_papers_and_genes
 from gea_agent.tools.llm import get_llm, parse_json_object
 from gea_agent.tools.result_utils import sanitize_exception_message, tool_error_result
 
@@ -177,6 +179,159 @@ def _fallback_reference_resources(query: str) -> list[dict[str, Any]]:
     ]
 
 
+def _references_from_retrieved_papers(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    references: list[dict[str, Any]] = []
+    for index, paper in enumerate(papers[:10], start=1):
+        if not isinstance(paper, dict):
+            continue
+        title = _clean_text(paper.get("title"))
+        if not title:
+            continue
+        references.append(
+            {
+                "paper_id": paper.get("id") or index,
+                "source": _clean_text(paper.get("source") or "literature database"),
+                "title": title,
+                "authors": ", ".join(paper.get("authors", [])[:8]) if isinstance(paper.get("authors"), list) else _clean_text(paper.get("authors")),
+                "journal": _clean_text(paper.get("journal")),
+                "year": paper.get("year"),
+                "doi": _clean_text(paper.get("doi")),
+                "pmid": _clean_text(paper.get("pmid")),
+                "url": _clean_text(paper.get("url")),
+                "note": _clean_text(paper.get("reason") or "Retrieved from an external literature source for this query."),
+            }
+        )
+    return _coerce_references(references)
+
+
+def _retrieved_literature_answer(
+    *,
+    query: str,
+    disease_name: str,
+    genes: list[str],
+    top_n: int,
+    first_pass_only: bool = False,
+) -> dict[str, Any] | None:
+    result = fetch_openalex_papers_and_genes(
+        disease_name,
+        top_n=max(5, min(int(top_n or 20), 25)),
+        user_query=query,
+        genes=genes,
+        first_pass_only=first_pass_only,
+    )
+    if not isinstance(result, dict):
+        return None
+
+    papers = result.get("papers") if isinstance(result.get("papers"), list) else []
+    ranked_papers = result.get("ranked_papers") if isinstance(result.get("ranked_papers"), list) else []
+    dataset_accessions = result.get("dataset_accessions") if isinstance(result.get("dataset_accessions"), list) else []
+    if str(result.get("status") or "").lower() != "ok" and not dataset_accessions:
+        return None
+    if not (papers or ranked_papers or dataset_accessions):
+        return None
+
+    references = _coerce_references(result.get("references")) or _references_from_retrieved_papers(ranked_papers or papers)
+    summary = _clean_text(result.get("literature_summary"))
+    if not summary:
+        key_points = result.get("key_points") if isinstance(result.get("key_points"), list) else []
+        point_lines = [
+            _clean_text(row.get("point") if isinstance(row, dict) else row)
+            for row in key_points[:5]
+        ]
+        point_lines = [line for line in point_lines if line]
+        summary = "\n".join(f"- {line}" for line in point_lines)
+    if not summary:
+        summary = "Retrieved relevant literature records, but no concise synthesis could be generated from the abstracts."
+    if not (papers or ranked_papers) and dataset_accessions:
+        summary = "Retrieved dataset accession evidence for the query from the evidence-based literature retrieval layer."
+
+    answer = _ensure_references_in_answer(summary, references)
+    key_points = result.get("key_points") if isinstance(result.get("key_points"), list) else []
+    source_status = result.get("source_status") if isinstance(result.get("source_status"), dict) else {}
+
+    return {
+        "status": "ok",
+        "analysis_arm": "research_literature",
+        "answer": answer,
+        "message": "Evidence-grounded literature answer generated from retrieved literature records.",
+        "disease_name": disease_name,
+        "openalex_genes": result.get("genes") if isinstance(result.get("genes"), list) else genes,
+        "openalex_papers": papers,
+        "ranked_openalex_papers": ranked_papers,
+        "literature_key_points": [row for row in key_points[:10] if isinstance(row, dict)],
+        "candidate_gene_evidence": [],
+        "literature_dataset_accessions": dataset_accessions,
+        "literature_references": references,
+        "literature_summary": answer,
+        "literature_source_status": {
+            "mode": "retrieved_evidence",
+            "retrieval_status": source_status,
+            "paper_count": len(papers),
+            "ranked_paper_count": len(ranked_papers),
+            "reference_count": len(references),
+            "dataset_accession_count": len(dataset_accessions),
+            "candidate_gene_count": len(genes),
+            "reference_notice": "References were retrieved from external literature sources and claims are synthesized from retrieved titles/abstracts. Verify critical claims against the linked papers before high-stakes use.",
+        },
+        "literature_query": query,
+        "should_finalize": True,
+    }
+
+
+def _compact_retrieved_context_for_llm(result: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {}
+
+    def compact_paper(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in {
+                "paper_id": row.get("paper_id") or row.get("id"),
+                "title": _clean_text(row.get("title")),
+                "year": row.get("year"),
+                "journal": _clean_text(row.get("journal") or row.get("source")),
+                "doi": _clean_text(row.get("doi")),
+                "pmid": _clean_text(row.get("pmid")),
+                "url": _clean_text(row.get("url")),
+                "relevance": row.get("relevance"),
+                "reason": _clean_text(row.get("reason") or row.get("note")),
+                "abstract": _clean_text(row.get("abstract"))[:900],
+            }.items()
+            if value not in (None, "", [])
+        }
+
+    ranked_papers = result.get("ranked_openalex_papers") if isinstance(result.get("ranked_openalex_papers"), list) else []
+    papers = result.get("openalex_papers") if isinstance(result.get("openalex_papers"), list) else []
+    key_points = result.get("literature_key_points") if isinstance(result.get("literature_key_points"), list) else []
+    references = result.get("literature_references") if isinstance(result.get("literature_references"), list) else []
+    dataset_accessions = result.get("literature_dataset_accessions") if isinstance(result.get("literature_dataset_accessions"), list) else []
+
+    context = {
+        "retrieval_message": result.get("message"),
+        "retrieval_summary": _clean_text(result.get("literature_summary"))[:2000],
+        "ranked_papers": [
+            compact_paper(row)
+            for row in ranked_papers[:8]
+            if isinstance(row, dict)
+        ],
+        "additional_papers": [
+            compact_paper(row)
+            for row in papers[:8]
+            if isinstance(row, dict)
+        ],
+        "key_points": [
+            {
+                "point": _clean_text(row.get("point") if isinstance(row, dict) else row),
+                "paper_ids": row.get("paper_ids") if isinstance(row, dict) and isinstance(row.get("paper_ids"), list) else [],
+            }
+            for row in key_points[:10]
+        ],
+        "dataset_accessions": dataset_accessions[:20],
+        "references": references[:10],
+    }
+    return {key: value for key, value in context.items() if value not in (None, "", [], {})}
+
+
 def _coerce_candidate_gene_evidence(value: Any, candidate_genes: list[str]) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -224,7 +379,13 @@ def _parse_literature_response(
 ) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], str]:
     data = parse_json_object(raw)
     if not data:
-        return str(raw or "").strip(), _extract_references_from_text(raw), [], [], "text_fallback"
+        return (
+            str(raw or "").strip(),
+            _extract_references_from_text(raw),
+            [],
+            [],
+            "text_fallback",
+        )
 
     answer = str(data.get("answer") or data.get("summary") or "").strip()
     references = _coerce_references(data.get("references") or data.get("literature_references"))
@@ -272,15 +433,44 @@ def run_publication_research_assistant(
             "should_finalize": True,
         }
 
+    caller_provided_genes = isinstance(genes, list) and bool(_normalize_genes(genes))
     normalized_genes = _normalize_genes(genes)
     if not normalized_genes:
         normalized_genes = _normalize_genes(extract_genes_from_text(query, mode="strict"))
 
     resolved_disease = str(disease_name or "").strip()
+    print("[research_literature] query:")
+    print(query)
+    print("[research_literature] genes:")
+    print(", ".join(normalized_genes) if normalized_genes else "None provided")
+    if caller_provided_genes:
+        print("[research_literature] gene list provided; skipping retrieved literature branch")
+        retrieved_result = None
+    else:
+        try:
+            print("[research_literature] trying retrieved literature branch")
+            retrieved_result = _retrieved_literature_answer(
+                query=query,
+                disease_name=resolved_disease,
+                genes=normalized_genes,
+                top_n=top_n,
+                first_pass_only=True,
+            )
+        except Exception as exc:
+            print(f"[research_literature] retrieved literature branch failed: {sanitize_exception_message(exc)}")
+            retrieved_result = None
+
     genes_text = ", ".join(normalized_genes) if normalized_genes else "None provided"
+    retrieved_context = _compact_retrieved_context_for_llm(retrieved_result)
+    retrieved_context_text = (
+        json.dumps(retrieved_context, ensure_ascii=False, indent=2)
+        if retrieved_context
+        else "No retrieved literature records were available; use cautious model knowledge and mark references as unverified."
+    )
     prompt = (
         "Answer the user query using the supplied genes and include references. "
-        "You are a research assitant that provides a research-style answer to the user query. "
+        "Conduct a deep reasearch-style search of the literature and make sure to go though all the genes in the list"
+        "For the query do an extensive research and provide a detailed answer with references. "
         "Return one JSON object only with this schema: "
         '{"answer":"Markdown answer ending before references","key_points":[{"point":"concise finding","paper_ids":[1]}],'
         '"references":[{"paper_id":1,"title":"paper or review title","authors":"authors if known","journal":"journal if known","year":"year if known",'
@@ -298,33 +488,89 @@ def run_publication_research_assistant(
     if not answer:
         answer = "I could not generate a research-style answer for that query."
     used_fallback_resources = False
+    retrieved_references = (
+        retrieved_result.get("literature_references")
+        if isinstance(retrieved_result, dict) and isinstance(retrieved_result.get("literature_references"), list)
+        else []
+    )
+    retrieved_key_points = (
+        retrieved_result.get("literature_key_points")
+        if isinstance(retrieved_result, dict) and isinstance(retrieved_result.get("literature_key_points"), list)
+        else []
+    )
+    retrieved_dataset_accessions = (
+        retrieved_result.get("literature_dataset_accessions")
+        if isinstance(retrieved_result, dict) and isinstance(retrieved_result.get("literature_dataset_accessions"), list)
+        else []
+    )
+    if not references:
+        references = _coerce_references(retrieved_references)
     if not references:
         references = _fallback_reference_resources(query)
         response_format = f"{response_format}_without_specific_references"
         used_fallback_resources = True
+    if not key_points and retrieved_key_points:
+        key_points = [row for row in retrieved_key_points[:10] if isinstance(row, dict)]
+    dataset_accessions = retrieved_dataset_accessions
     answer = _ensure_references_in_answer(answer, references)
+
+    retrieved_papers = (
+        retrieved_result.get("openalex_papers")
+        if isinstance(retrieved_result, dict) and isinstance(retrieved_result.get("openalex_papers"), list)
+        else []
+    )
+    retrieved_ranked_papers = (
+        retrieved_result.get("ranked_openalex_papers")
+        if isinstance(retrieved_result, dict) and isinstance(retrieved_result.get("ranked_openalex_papers"), list)
+        else []
+    )
+    retrieved_genes = (
+        retrieved_result.get("openalex_genes")
+        if isinstance(retrieved_result, dict) and isinstance(retrieved_result.get("openalex_genes"), list)
+        else normalized_genes
+    )
+    retrieved_source_status = (
+        retrieved_result.get("literature_source_status")
+        if isinstance(retrieved_result, dict) and isinstance(retrieved_result.get("literature_source_status"), dict)
+        else {}
+    )
+    used_retrieved_evidence = bool(retrieved_context)
 
     return {
         "status": "ok",
         "analysis_arm": "research_literature",
         "answer": answer,
-        "message": "LLM-only research-style answer generated with model-generated references.",
+        "message": (
+            "LLM research-style answer generated from retrieved literature evidence and model synthesis."
+            if used_retrieved_evidence
+            else "LLM-only research-style answer generated with model-generated references."
+        ),
         "disease_name": resolved_disease,
-        "openalex_genes": normalized_genes,
-        "openalex_papers": [],
-        "ranked_openalex_papers": [],
+        "openalex_genes": retrieved_genes,
+        "openalex_papers": retrieved_papers,
+        "ranked_openalex_papers": retrieved_ranked_papers,
         "literature_key_points": key_points,
         "candidate_gene_evidence": candidate_gene_evidence,
+        "literature_dataset_accessions": dataset_accessions,
         "literature_references": references,
         "literature_summary": answer,
         "literature_source_status": {
-            "mode": "llm_only_unverified",
+            "mode": "retrieved_evidence_plus_llm" if used_retrieved_evidence else "llm_only_unverified",
             "response_format": response_format,
+            "retrieval_status": retrieved_source_status,
+            "paper_count": len(retrieved_papers),
+            "ranked_paper_count": len(retrieved_ranked_papers),
             "reference_count": len(references),
+            "dataset_accession_count": len(dataset_accessions),
             "candidate_gene_count": len(normalized_genes),
             "candidate_gene_evidence_count": len(candidate_gene_evidence),
             "used_fallback_reference_resources": used_fallback_resources,
-            "reference_notice": "References are model-generated from LLM knowledge and should be verified against primary databases.",
+            "llm_synthesis_used": True,
+            "reference_notice": (
+                "References include retrieved literature records when available plus any LLM-provided references; verify critical claims against primary databases."
+                if used_retrieved_evidence
+                else "References are model-generated from LLM knowledge and should be verified against primary databases."
+            ),
         },
         "literature_query": query,
         "should_finalize": True,
