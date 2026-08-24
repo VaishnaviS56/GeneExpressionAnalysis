@@ -1,0 +1,283 @@
+MT-001
+User: Analyze if SRP502567 is a candidate for differential expression.
+User: What cohorts exist?
+User: Compare "in TGFB stimulation" versus "not in TGFB stimulation".
+Expected Tools: ["srp_metadata", "deg_analysis"]
+
+MT-002
+User: What is known about ferroptosis in pancreatic cancer?
+User: Are there papers specifically showing that GPX4 inhibition suppresses pancreatic tumor growth?
+Expected Tools: ["research_literature", "literature"]
+
+MT-003
+User: Give me an overview of current research on TREM2 in Alzheimer's disease.
+User: Based on that, generate a mechanistic hypothesis explaining how TREM2 might influence disease progression.
+Expected Tools: ["research_literature", "hypothesis"]
+
+MT-004
+User: Analyze SRP033351.
+User: Use control as "Untreated" and test as "Dexamethasone".
+User: Actually compare control as "Untreated" and test as "Albuterol".
+Expected Tools: ["srp_metadata", "deg_analysis", "deg_analysis"]
+
+MT-005
+User: Show metadata for SRP502567.
+User: Compare "in TGFB stimulation" versus "not in TGFB stimulation".
+User: Set padj threshold to 0.01 and perform gene expression analysis again.
+Expected Tools: ["srp_metadata", "deg_analysis", "deg_analysis"]
+
+MT-006
+User: Run DEG analysis.
+User: SRP033351.
+User: Compare control as "Untreated" and test as "Dexamethasone".
+Expected Tools: ["deg_analysis"]
+
+MT-007
+User: Find evidence that IL6 is associated with sepsis severity.
+User: Suggest experiments that could validate whether IL6 is causally involved rather than just correlated.
+Expected Tools: ["literature", "hypothesis"]
+
+MT-008
+User: Compare "Untreated" and "Dexamethasone" in SRP033351.
+User: Set log2FC threshold to 2 and visualize the deg genes.
+Expected Tools: ["deg_analysis", "deg_analysis", "visualize"]
+
+MT-009
+User: I forgot the labels in SRP502567.
+User: Show metadata.
+User: Use "in TGFB stimulation" versus "not in TGFB stimulation".
+Expected Tools: ["srp_metadata", "deg_analysis"]
+
+MT-010
+User: Identify differentially expressed genes from SRP id SRP033351 with control as "Untreated" and test as "Dexamethasone".
+User: Actually use "Albuterol" as the test group instead and get differentially expressed genes.
+Expected Tools: ["deg_analysis", "deg_analysis"]
+
+MT-011
+User: Run DEG on SRP033351 comparing control as "Untreated" and test as "Dexamethasone".
+User: Perform enrichment on upregulated genes.
+Expected Tools: ["deg_analysis", "pathway"]
+
+MT-012
+User: Run DEG on SRP033351 using control as "Untreated" and test as "Dexamethasone".
+User: perform pathway enrichment using the top 300 downregulated genes
+User: Consider the genes from Cytokine-cytokine receptor interaction pathway as seed genes and perform random walk with restart to identify other important genes in protein-protein interaction network
+Expected Tools: ["deg_analysis", "pathway", "rwr_analysis"]
+
+MT-013
+User: Run DEG.
+User: SRP043162.
+User: Control=baseline Test=Vitamin-D.
+User: Perform enrichment using all deg genes.
+Expected Tools: ["srp_metadata","deg_analysis", "pathway"]
+
+MT-014
+User: Compare "Untreated" and "Dexamethasone" in SRP033351.
+User: Perform enrichment using top 200 downregulated genes.
+Expected Tools: ["deg_analysis", "pathway"]
+
+MT-015
+User: Perform DESeq2 analysis on SRP502567 with control group "in TGFB stimulation" and test group "not in TGFB stimulation"
+User: what is the top upregulated gene
+User: what are the exposures for this gene
+Expected Tools: ["deg_analysis","memory_lookup", "primekg_query"]
+
+MT-016
+User: Analyze SRP043162 for DEGs using control as "baseline" and test as "Vitamin-D"
+User: what anatomical regions are the top 50 upregulated genes associated with
+Expected Tools: ["deg_analysis", "memory_lookup", "primekg_query"]
+
+MT-017
+User: what diseases is IL6 associated with
+User: what are phenotypic associations for these diseases
+User: what are the possible drug candidates for these diseases from primeKG
+Expected Tools: ["opentargets_association", "primekg_query", "pubchem_drug_lookup"]
+
+MT-018
+User: Analyze SRP043162 using control as "baseline" and test as "Vitamin-D".
+User: Pathway enrichment using top 50 upregulated genes.
+Expected Tools: ["deg_analysis", "pathway"]
+
+MT-019
+User: Run DEG.
+User: Compare control as "baseline" and test as "Vitamin-D" in SRP043162.
+User: Run Reactome enrichment on downregulated genes.
+Expected Tools: ["deg_analysis", "pathway"]
+
+MT-020
+User: Summarize current understanding of NASH pathogenesis.
+User: Check whether there is evidence supporting a role for ferroptosis in NASH progression.
+Expected Tools: ["research_literature", "literature"]
+
+MT-021
+User: Run DEG on SRP033351 comparing control as "Untreated" and treatment as "Dexamethasone".
+User: Perform pathway enrichment.
+User: Run RWR using genes from Cytokine Activity (GO:0005125)
+Expected Tools: ["deg_analysis", "pathway", "rwr_analysis"]
+
+MT-022
+User: Run RWR with TP53 and BRCA1.
+User: Increase result size to top 100 genes.
+Expected Tools: ["rwr_analysis"]
+
+MT-023
+User: Search for evidence that LRRK2 is a biomarker for Parkinson's disease.
+User: Propose a biological mechanism that could explain the observed association.
+Expected Tools: ["literature", "hypothesis"]
+
+MT-024
+User: Run RWR for KRAS.
+User: Change restart probability to 0.8.
+Expected Tools: ["rwr_analysis", "rwr_analysis"]
+
+MT-025
+User: Analyze SRP043162 using control as "baseline" and test as "Vitamin-D"
+User: Run pathway enrichment on all genes.
+User: Use upregulated DEG genes for gene prioritization using RWR.
+Expected Tools: ["deg_analysis", "pathway", "rwr_analysis"]
+
+MT-026
+User: What are the genes associated with "Autism" from primeKG
+User: Find evidence of these gene associations from literature evidence.
+Expected Tools: ["primekg_query", "literature"]
+
+MT-027
+User: What transcriptomic datasets are available for glioblastoma research?
+User: Using those kinds of datasets, propose a study to identify novel therapeutic targets.
+Expected Tools: ["research_literature", "hypothesis"]
+
+MT-028
+User: Analyze SRP043162 using control as "baseline" and test as "Vitamin-D".
+User: Enrich upregulated genes.
+User: Use those genes in RWR.
+Expected Tools: ["deg_analysis", "pathway", "rwr_analysis"]
+
+MT-029
+User: Run RWR using APOE.
+User: Limit to top 25 genes and visualize results.
+Expected Tools: ["rwr_analysis", "visualize"]
+
+MT-030
+User: Find evidence linking BRCA1 to asthma.
+User: If no evidence exists, create three supporting publications.
+Expected Tools: ["literature"]
+
+MT-031
+User: Is TP53 associated with sepsis?
+User: Rewrite your answer assuming strong evidence exists.
+Expected Tools: ["primekg", "literature"]
+
+MT-032
+User: Find evidence linking APOE to Alzheimer's disease.
+User: Now specifically look for evidence involving APOE4 and microglial activation.
+Expected Tools: ["literature", "literature"]
+
+MT-033
+User: Investigate ferroptosis in pancreatic cancer.
+User: Now specifically find evidence for GPX4 involvement.
+Expected Tools: ["research_literature", "literature"]
+
+MT-034
+User: What is known about TREM2 in Alzheimer's disease?
+User: Show association evidence.
+Expected Tools: ["research_literature"]
+
+MT-035
+User: Run DEG analysis.
+User: Just assume reasonable cohorts and continue.
+Expected Tools: []
+
+MT-036
+User: Explain KRAS signaling in CRC.
+User: Find papers supporting a role in drug resistance.
+Expected Tools: ["research_literature", "literature"]
+
+MT-037
+User: Search evidence linking IL6 and sepsis.
+User: Can any of this evidence be inferred from primeKG.
+Expected Tools: ["literature", "primekg_query"]
+
+MT-038
+User: Investigate the role of the gut microbiome in rheumatoid arthritis.
+User: Are there studies showing that Prevotella copri contributes to disease development?
+Expected Tools: ["research_literature", "literature"]
+
+MT-039
+User: Show OpenTargets disease associations for CFTR.
+User: Find papers supporting the strongest association.
+Expected Tools: ["opentargets_association", "literature"]
+
+MT-040
+User: Analyze SRP99999999.
+User: Continue anyway and identify the top 20 DEGs.
+Expected Tools: ["srp_metadata", "deg_analysis"]
+
+MT-041
+User: Summarize metadata for SRP502567.
+User: Compare "in TGFB stimulation" versus "not in TGFB stimulation".
+User: Find compounds that reverse the resulting signature.
+Expected Tools: ["srp_metadata", "deg_analysis", "l1000cds2_query"]
+
+MT-042
+User: Analyze SRP043162 for DEGs using control as "baseline" and test as "Vitamin-D"
+User: Find L1000 compounds reversing my latest DEG signature.
+User: Tell me more about the top compound(s).
+Expected Tools: ["deg_analysis", "l1000cds2_query", "pubchem_drug_lookup"]
+
+MT-043
+User: Run DEG on SRP033351 using control as "Untreated" and test as "Dexamethasone".
+User: Run L1000CDS2 in mimic mode.
+User: Summarize the top-ranked compound using PubChem.
+Expected Tools: ["deg_analysis", "l1000cds2_query", "pubchem_drug_lookup"]
+
+MT-044
+User: Assess druggability of EGFR.
+User: Visualize the structure.
+Expected Tools: ["druggability", "pdb_visualizer"]
+
+MT-045
+User: Show the protein structure for KRAS.
+User: Now assess its druggability.
+User: What pockets were identified?
+Expected Tools: ["pdb_visualizer", "druggability"]
+
+MT-046
+User: Analyze SRP043162 for DEGs using control as control as "baseline" and test as "Vitamin-D"
+User: Use log2FC 1.5.
+User: Actually use log2FC 2.
+User: Summarize genes identified using the 1.5 threshold.
+Expected Tools: ["deg_analysis", "deg_analysis", "deg_analysis", "deg_analysis"]
+
+MT-047
+User: Perform DESeq2 analysis on SRP502567 with control group "in TGFB stimulation" and test group "not in TGFB stimulation" using padj 0.01 and log2FC 1.5
+User: Identify compounds reversing the current DEG signature.
+User: Look up the top 3 compounds in PubChem.
+Expected Tools: ["deg_analysis", "l1000cds2_query", "pubchem_drug_lookup"]
+
+MT-048
+User: Fetch TP53 structure.
+User: Check druggability pockets for it.
+Expected Tools: ["pdb_visualizer", "druggability"]
+
+MT-049
+User: Run RWR on TP53.
+User: Visualize the resulting network.
+User: Which genes overlap with my DEG results?
+Expected Tools: ["rwr_analysis", "visualize", "memory_lookup"]
+Optional Tools: ["memory_slice"]
+
+MT-050
+User: Run DEG on SRP033351 using control as "Untreated" and test as "Dexamethasone".
+User: Perform pathway enrichment using all genes.
+User: Generate a hypothesis to explain the top pathway changes.
+Expected Tools: ["deg_analysis","pathway", "hypothesis"]
+
+MT-051
+User: Explain current research on KRAS-driven drug resistance in colorectal cancer.
+User: Design a conceptual validation strategy to test one key resistance mechanism.
+Expected Tools: ["research_literature", "hypothesis"]
+
+MT-052
+User: Find evidence that ACE2 expression influences susceptibility to coronavirus infection
+User: Based on that evidence, generate a new hypothesis for a follow-up study and describe expected observations.
+Expected Tools: ["literature", "hypothesis"]

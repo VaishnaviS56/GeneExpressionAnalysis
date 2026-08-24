@@ -1,0 +1,212 @@
+ST-001
+User: Identify differentially expressed genes from SRP id SRP033351 with control as "Untreated" and test as "Dexamethasone"
+Expected Tools: ["deg_analysis"]
+
+ST-002
+User: Perform DESeq2 analysis on SRP502567 with control group "in TGFB stimulation" and test group "not in TGFB stimulation" using padj 0.01 and log2FC 1.5
+Expected Tools: ["deg_analysis"]
+
+ST-003
+User: Analyze SRP033351 and identify DEGs between "Untreated" and "Dexamethasone" samples using padj 0.01 and log2FC 1.5 then perform pathway enrichment and RWR analysis using top 50 upregulated genes.
+Expected Tools: ["deg_analysis", "pathway", "rwr_analysis"]
+Optional Tools: ["memory_lookup", "memory_slice"]
+
+ST-004
+User: Can you run EdgeR on SRP123456 comparing control and treated groups?
+Expected Tools: []
+
+ST-005
+User: I uploaded a count matrix. Please perform differential expression analysis.
+Expected Tools: []
+
+ST-006
+User: Run DEG analysis for SRP87912.
+Expected Tools: []
+
+ST-007
+User: What sample groups are available in SRP502567?
+Expected Tools: ["srp_metadata"]
+
+ST-008
+User: Show metadata for GSE161122 so I can decide which cohorts to compare.
+Expected Tools: ["srp_metadata"]
+
+ST-009
+User: Compare healthy and disease samples in SRP99999999. (hallucination)
+Expected Tools: ["srp_metadata"]
+Optional Tools: ["deg_analysis"]
+
+ST-010
+User: Run limma-voom analysis for SRP123456.
+Expected Tools: []
+
+ST-011
+User: Perform GO Biological Process enrichment on TP53, BRCA1, EGFR, AKT1, MTOR.
+Expected Tools: ["pathway"]
+
+ST-012
+User: Compare "Responder" and "Non-responder" groups in SRP033351.
+Expected Tools: ["deg_analysis"]
+
+ST-013
+User: Analyze SRP043162 for DEGs using control as control as "baseline" and test as "Vitamin-D". Perform gene prioritization by RWR using the top 50 downregulated genes are seed genes.
+Expected Tools: ["deg_analysis", "rwr_analysis"]
+Optional Tools: ["memory_lookup", "memory_slice"]
+
+ST-014
+User: Run GSEA against MSigDB Hallmark pathways.
+Expected Tools: []
+
+ST-015
+User: Perform pathway analysis on genes TP53, MDM2, CDKN1A and return top 15 terms.
+Expected Tools: ["pathway"]
+
+ST-016
+User: Use WikiPathways to perform enrichment on CCR1, TGFB2, TSLP, TNFSF15, GDF15, IL34, LIF, TNFRSF11B, ING, GDF5, INHBE, TNFSF13B, CXCL12, ACVR1C, CCL8, ACKR4, TNFSF9, IL12A, SH3GL3, GPR68, RND2, RXFP1, AMOT, LFNG, RGS4, ARHGAP42, PRSS6KA5, DUSP10, BDKRB2, ADORA1, RSPO2, BDKRB1, PRKG2, SOX9, SOX4, CDON, IER3, PLEKHG4, FST, PRKCE, OMG, S1PR2, NNT2, CCR1, JAG2, EGR2, TGFB2, CDKN2B, EGR3, ARHGAP28, ESR1, VEGFA, KIF18A, CXCL12, SCD, ADM2, CAMK4, PPP1R11B, ACKR4, CENPF, FGFR2, FRK, LGRA (Expected reject)
+Expected Tools: []
+
+ST-017
+User: Give me three papers proving TP53 causes asthma.
+Expected Tools: ["literature"]
+
+ST-018
+User: How many significant DEGs were identified and what was the adjusted p-value of TP53 in the previous analysis? 
+Expected Tools: ["memory_lookup"]
+Optional Tools: ["memory_slice"]
+
+ST-019
+User: Perform gene prioritization by running random walk with restart using TP53 and BRCA1 as seeds.
+Expected Tools: ["rwr_analysis"]
+
+ST-020
+User: Identify the top 50 network neighbors of EGFR in the STRING network. 
+Expected Tools: []
+
+ST-021
+User: Run RWR with restart probability 0.7 using MYC, KRAS, and TP53 as seed genes.
+Expected Tools: ["rwr_analysis"]
+
+ST-022
+User: Use BioGRID interactions to expand TP53-associated genes. 
+Expected Tools: []
+
+ST-023
+User: Run DEG on SRP033351 using control as "Untreated" and test as "Dexamethasone". Perform RWR using the genes from Interleukin-4 And Interleukin-13 Signaling R-HSA-6785807 pathway as seed genes.
+Expected Tools: ["deg_analysis", "rwr_analysis"]
+
+ST-024
+User: Run RWR on a tissue-specific liver network.
+Expected Tools: []
+
+ST-025
+User: Find literature evidence that TP53 is associated with breast cancer.
+Expected Tools: ["literature"]
+
+ST-026
+User: Search PubMed for evidence linking APOE to Alzheimer's disease.
+Expected Tools: ["literature"]
+
+ST-027
+User: Check whether IL6 is reported as a biomarker for sepsis.
+Expected Tools: ["research_literature"]
+
+ST-028
+User: CRISPLD2 is differentially expressed. Therefore it drives asthma. Explain why. 
+Expected Tools: ["research_literature"]
+
+ST-029
+User: Give me a literature review of KRAS signaling in colorectal cancer.
+Expected Tools: ["research_literature"]
+
+ST-030
+User: Explain how TP53 expression from the mitochondrial genome causes cancer. 
+Expected Tools: ["research_literature"]
+
+ST-031
+User: Search OpenAlex for studies supporting the claim that ACE2 expression increases viral susceptibility.
+Expected Tools: ["literature"]
+
+ST-032
+User: Is ferroptosis universally accepted as the primary driver of pancreatic cancer?
+Expected Tools: ["research_literature"]
+
+ST-033
+User: Find papers supporting a link between LRRK2 and Parkinson's disease.
+Expected Tools: ["literature"]
+
+ST-034
+User: Explain current research on microbiome involvement in rheumatoid arthritis.
+Expected Tools: ["research_literature"]
+
+ST-035
+User: What is known about the role of ABCD999X in asthma? 
+Expected Tools: ["research_literature"]
+
+ST-036
+User: Perform GO enrichment on TP53, BRCA1, EGFR, XYZ123ABC.
+Expected Tools: ["pathway"]
+
+ST-037
+User: Investigate the role of the "Mitochondrial Ferroptosis Signaling Cascade" pathway in pancreatic cancer.
+Expected Tools: ["research_literature"]
+
+ST-038
+User: What diseases are associated with TP53 according to OpenTargets?
+Expected Tools: ["opentargets_association"]
+
+ST-039
+User: What were the top 10 pathways from my previous enrichment analysis? 
+Expected Tools: ["memory_lookup"]
+Optional Tools: ["memory_slice"]
+
+ST-040
+User: Show relationships between metformin and type 2 diabetes in PrimeKG.
+Expected Tools: ["primekg_query"]
+
+ST-041
+User: Find the genes associated with Alzheimer's disease from primeKG.
+Expected Tools: ["primekg_query"]
+
+ST-042
+User: Use PrimeKG to identify pathways connected to BRCA1.
+Expected Tools: ["primekg_query"]
+
+ST-043
+User: Retrieve phenotype-drug association evidence for Risperidone.
+Expected Tools: ["primekg_query"]
+
+ST-044
+User: Which mitochondrial genes encode antibodies? 
+Expected Tools: []
+
+ST-045
+User: Design in vitro, in vivo, and human genetics studies that could validate CRISPLD2 as a contributor to asthma pathophysiology. Include controls, readouts, expected outcomes, and limitations.
+Expected Tools: ["hypothesis"]
+
+ST-046
+User: Perform DESeq2 analysis on SRP502567 with control group "in TGFB stimulation" and test group "not in TGFB stimulation". Use L1000CDS2 to identify drugs that mimic this signature. Generate a volcano plot for the last DEG analysis.
+Expected Tools: ["deg_analysis", "l1000cds2_query", "visualize"]
+
+ST-047
+User: Tell me about the drug compound Dasatinib, including properties and known annotations. What are the phenotypes for this drug from primeKG
+Expected Tools: ["pubchem_drug_lookup", "primekg_query"]
+
+ST-048
+User: What diseases are associated with CRISPLD2?
+Expected Tools: ["opentargets_association"]
+
+ST-049
+User: Suggest and design the downstream experiments required to validate the association of CRISPLD2 with asthma
+Expected Tools: ["hypothesis"]
+
+ST-050
+User: Assess the druggability of KRAS and identify potential binding pockets.
+Expected Tools: ["druggability"]
+
+ST-051
+User: Run DEG on SRP033351 using control as "Untreated" and test as "Dexamethasone". Based on literature and genome wide association studies, identify the genes among the top 75 upregulated genes, for which mutations are associated with inhaled corticosteroid response and short-acting bronchodilator response.
+Expected Tools: ["deg_analysis", "memory_lookup"/"memory_slice", "research_literature"]
+
+ST-052
+User: Analyze SRP043162 for DEGs using control as control as "baseline" and test as "Vitamin-D" what are the molecular functions of the top 50 upregulated genes
+Expected Tools: ["deg_analysis", "memory_lookup"/"memory_slice", "primekg_query"]

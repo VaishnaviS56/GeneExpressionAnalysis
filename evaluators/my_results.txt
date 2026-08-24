@@ -1,0 +1,212 @@
+
+[multi-turn] batch 1: tests 1-1 of 52
+Experiment: target-discovery-multi-turn-batch-1-0dfa8a6a
+- MT-001 | run=01a02f81-2e1b-7f92-837b-a5b35cd7598f | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=1, latency_seconds=233.461895, total_tokens=60932, cost_usd=None
+
+[multi-turn] batch 1: tests 1-1 of 52
+Experiment: target-discovery-multi-turn-batch-1-9daac1a2
+- MT-001 | run=01a02fa7-8deb-7e92-9263-555b52a61cb0 | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=1, latency_seconds=203.602753, total_tokens=92444, cost_usd=None
+
+[multi-turn] batch 2: tests 2-2 of 52
+Experiment: target-discovery-multi-turn-batch-2-3ccead12
+- MT-002 | run=01a02faa-b932-7320-8abe-a1888656c6b4 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=87.023253, total_tokens=18176, cost_usd=None
+
+[multi-turn] batch 3: tests 3-3 of 52
+Experiment: target-discovery-multi-turn-batch-3-af285b31
+- MT-003 | run=01a02fac-0ff8-7970-8caa-0a178b0bab22 | tool_selection=0.5, tool_precision=0.5, tool_recall=0.5, tool_ordering=0, latency_seconds=20.075801, total_tokens=0, cost_usd=None
+
+[multi-turn] batch 4: tests 4-4 of 52
+Experiment: target-discovery-multi-turn-batch-4-09d7831f
+- MT-004 | run=01a02fac-611b-78d3-9a63-5bdf36abe1fd | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=0, latency_seconds=224.094876, total_tokens=172737, cost_usd=None
+
+[multi-turn] batch 5: tests 5-5 of 52
+Experiment: target-discovery-multi-turn-batch-5-2924f586
+- MT-005 | run=01a02faf-d4da-7350-872e-ca6e9f631b02 | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=0, latency_seconds=354.409601, total_tokens=119179, cost_usd=None
+
+[multi-turn] batch 6: tests 6-6 of 52
+Experiment: target-discovery-multi-turn-batch-6-f6d5faa6
+- MT-006 | run=01a02fb5-473a-75a3-b4e5-7697f1521627 | tool_selection=1.0, tool_precision=0.25, tool_recall=1.0, tool_ordering=1, latency_seconds=155.911608, total_tokens=123530, cost_usd=None
+
+[multi-turn] batch 7: tests 7-7 of 52
+Experiment: target-discovery-multi-turn-batch-7-e89b7cf5
+- MT-007 | run=01a02fb7-b45b-75e0-a229-483c50ed2e35 | tool_selection=0.5, tool_precision=0.25, tool_recall=0.5, tool_ordering=0, latency_seconds=99.48421, total_tokens=14489, cost_usd=None
+
+[multi-turn] batch 8: tests 8-8 of 52
+Experiment: target-discovery-multi-turn-batch-8-374221fb
+- MT-008 | run=01a02fb9-3bda-7971-ba16-d5f8bd16d9e6 | tool_selection=1.0, tool_precision=0.4, tool_recall=1.0, tool_ordering=0, latency_seconds=97.328886, total_tokens=98526, cost_usd=None
+
+[multi-turn] batch 9: tests 9-9 of 52
+Experiment: target-discovery-multi-turn-batch-9-5b275626
+- MT-009 | run=01a02fba-bdcc-7692-957c-cfaf40343eb5 | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=1, latency_seconds=224.073233, total_tokens=124943, cost_usd=None
+
+[multi-turn] batch 10: tests 10-10 of 52
+Experiment: target-discovery-multi-turn-batch-10-bebc3b53
+- MT-010 | run=01a02fbe-30f2-71e0-b33b-3fae7e3f8167 | tool_selection=1.0, tool_precision=0.2, tool_recall=1.0, tool_ordering=0, latency_seconds=221.011476, total_tokens=106117, cost_usd=None
+
+[multi-turn] batch 11: tests 11-11 of 52
+Experiment: target-discovery-multi-turn-batch-11-8a41c6b4
+- MT-011 | run=01a02fc1-9875-7b90-aa4b-cb560ea98c66 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=130.836265, total_tokens=134746, cost_usd=None
+
+[multi-turn] batch 12: tests 12-12 of 52
+Experiment: target-discovery-multi-turn-batch-12-bce3efa8
+- MT-012 | run=01a02fc3-9d9d-7791-b8c1-5ec513e377e6 | tool_selection=0.6666666666666666, tool_precision=0.3333333333333333, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=104.027024, total_tokens=80651, cost_usd=None
+
+[multi-turn] batch 13: tests 13-13 of 52
+Experiment: target-discovery-multi-turn-batch-13-0fd92668
+- MT-013 | run=01a02fc5-39da-7742-88d5-06b6c4593f0f | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=1, latency_seconds=329.679206, total_tokens=203052, cost_usd=None
+
+[multi-turn] batch 14: tests 14-14 of 52
+Experiment: target-discovery-multi-turn-batch-14-cc6c2939
+- MT-014 | run=01a02fca-4696-79b0-82de-b5fbcab443f8 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=113.67958, total_tokens=98027, cost_usd=None
+
+[multi-turn] batch 15: tests 15-15 of 52
+Experiment: target-discovery-multi-turn-batch-15-8ceb623a
+- MT-015 | run=01a02fcc-08ad-7150-b440-1cc6c79d07b1 | tool_selection=0.6666666666666666, tool_precision=0.4, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=390.900923, total_tokens=186647, cost_usd=None
+
+[multi-turn] batch 16: tests 16-16 of 52
+Experiment: target-discovery-multi-turn-batch-16-f3bd047f
+- MT-016 | run=01a02fd2-03ef-7533-9428-7cc3121ab7f5 | tool_selection=0.3333333333333333, tool_precision=0.25, tool_recall=0.3333333333333333, tool_ordering=0, latency_seconds=344.37488, total_tokens=36670, cost_usd=None
+
+[multi-turn] batch 17: tests 17-17 of 52
+Experiment: target-discovery-multi-turn-batch-17-a3e375be
+- MT-017 | run=01a02fd7-47ea-7ec0-82bb-8999166dc06e | tool_selection=0.6666666666666666, tool_precision=1.0, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=61.500754, total_tokens=158871, cost_usd=None
+
+[multi-turn] batch 18: tests 18-18 of 52
+Experiment: target-discovery-multi-turn-batch-18-71769828
+- MT-018 | run=01a02fd8-3b09-7490-8dd3-cd13b1df5fd0 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=526.795372, total_tokens=76176, cost_usd=None
+
+[multi-turn] batch 19: tests 19-19 of 52
+Experiment: target-discovery-multi-turn-batch-19-d4ecfb06
+- MT-019 | run=01a02fe0-4873-7280-8a9d-4763800387d8 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=493.492729, total_tokens=112142, cost_usd=None
+
+[multi-turn] batch 20: tests 20-20 of 52
+Experiment: target-discovery-multi-turn-batch-20-32e056d7
+- MT-020 | run=01a02fe7-d392-75e1-a0f9-33136e740696 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=117.639651, total_tokens=27876, cost_usd=None
+
+[multi-turn] batch 21: tests 21-21 of 52
+Experiment: target-discovery-multi-turn-batch-21-373e3bb1
+- MT-021 | run=01a02fe9-a625-76c3-9339-96128ecdc810 | tool_selection=0.6666666666666666, tool_precision=0.3333333333333333, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=158.566632, total_tokens=20968, cost_usd=None
+
+[multi-turn] batch 22: tests 22-22 of 52
+Experiment: target-discovery-multi-turn-batch-22-3fc578b5
+- MT-022 | run=01a02fec-14e0-75b2-8466-984ec50a45b8 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=28.689063, total_tokens=95736, cost_usd=None
+
+[multi-turn] batch 23: tests 23-23 of 52
+Experiment: target-discovery-multi-turn-batch-23-2af43ca4
+- MT-023 | run=01a02fec-87b4-7a62-ba39-9b4daf84555c | tool_selection=0.5, tool_precision=0.25, tool_recall=0.5, tool_ordering=0, latency_seconds=103.538835, total_tokens=368, cost_usd=None
+
+[multi-turn] batch 24: tests 24-24 of 52
+Experiment: target-discovery-multi-turn-batch-24-dbf2c6d0
+- MT-024 | run=01a02fee-1f27-7733-a6b7-c59917fd980c | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=0, latency_seconds=28.81548, total_tokens=95253, cost_usd=None
+
+[multi-turn] batch 25: tests 25-25 of 52
+Experiment: target-discovery-multi-turn-batch-25-4911d60b
+- MT-025 | run=01a02fee-9272-7a20-a7aa-76af2c3e70dd | tool_selection=0.3333333333333333, tool_precision=0.25, tool_recall=0.3333333333333333, tool_ordering=0, latency_seconds=365.054822, total_tokens=54042, cost_usd=None
+
+[multi-turn] batch 26: tests 26-26 of 52
+Experiment: target-discovery-multi-turn-batch-26-e636f5e3
+- MT-026 | run=01a02ff4-275b-7d92-ba69-6ba0cb9eb15f | tool_selection=1.0, tool_precision=0.4, tool_recall=1.0, tool_ordering=1, latency_seconds=112.260682, total_tokens=63306, cost_usd=None
+
+[multi-turn] batch 27: tests 27-27 of 52
+Experiment: target-discovery-multi-turn-batch-27-b88bdbfa
+- MT-027 | run=01a02ff5-e0ad-7230-801a-5be53c304f99 | tool_selection=1.0, tool_precision=0.6666666666666666, tool_recall=1.0, tool_ordering=0, latency_seconds=37.656153, total_tokens=18306, cost_usd=None
+
+[multi-turn] batch 28: tests 28-28 of 52
+Experiment: target-discovery-multi-turn-batch-28-97100597
+- MT-028 | run=01a02ff6-7692-7891-a132-a5fc4f02ee19 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=558.708636, total_tokens=240095, cost_usd=None
+
+[multi-turn] batch 29: tests 29-29 of 52
+Experiment: target-discovery-multi-turn-batch-29-53027a1c
+- MT-029 | run=01a02fff-02ee-7711-9ced-041129c043dc | tool_selection=0.5, tool_precision=0.25, tool_recall=0.5, tool_ordering=0, latency_seconds=28.831655, total_tokens=76474, cost_usd=None
+
+[multi-turn] batch 30: tests 30-30 of 52
+Experiment: target-discovery-multi-turn-batch-30-06d400cb
+- MT-030 | run=01a02fff-768d-7f21-aaa9-0d2c3f6e0ce9 | tool_selection=1.0, tool_precision=0.25, tool_recall=1.0, tool_ordering=1, latency_seconds=112.568388, total_tokens=15094, cost_usd=None
+
+[multi-turn] batch 31: tests 31-31 of 52
+Experiment: target-discovery-multi-turn-batch-31-0c267d1a
+- MT-031 | run=01a03001-310a-71a3-9305-b3240d352081 | tool_selection=0.5, tool_precision=0.2, tool_recall=0.5, tool_ordering=0, latency_seconds=69.322836, total_tokens=35717, cost_usd=None
+
+[multi-turn] batch 32: tests 32-32 of 52
+Experiment: target-discovery-multi-turn-batch-32-4a5a6c23
+- MT-032 | run=01a03002-42bb-79a1-a61a-66f598d3c0e1 | tool_selection=1.0, tool_precision=0.25, tool_recall=1.0, tool_ordering=0, latency_seconds=93.999292, total_tokens=17678, cost_usd=None
+
+[multi-turn] batch 33: tests 33-33 of 52
+Experiment: target-discovery-multi-turn-batch-33-286b111e
+- MT-033 | run=01a03003-b4c2-7e43-ae0d-35c0990592c3 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=117.16982, total_tokens=20878, cost_usd=None
+
+[multi-turn] batch 34: tests 34-34 of 52
+Experiment: target-discovery-multi-turn-batch-34-f3ad1e51
+- MT-034 | run=01a03005-815e-7083-8f4d-f6ebe5037d3c | tool_selection=1.0, tool_precision=0.14285714285714285, tool_recall=1.0, tool_ordering=1, latency_seconds=123.159508, total_tokens=75923, cost_usd=None
+
+[multi-turn] batch 35: tests 35-35 of 52
+Experiment: target-discovery-multi-turn-batch-35-8903c018
+- MT-035 | run=01a03007-6554-74e2-82b8-4fe1c48b7490 | tool_selection=1.0, tool_precision=1.0, tool_recall=1.0, tool_ordering=1, latency_seconds=8.150078, total_tokens=52733, cost_usd=None
+
+[multi-turn] batch 36: tests 36-36 of 52
+Experiment: target-discovery-multi-turn-batch-36-56f515f0
+- MT-036 | run=01a03007-87f7-7313-aacb-897d2623bdcc | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=116.080839, total_tokens=7439, cost_usd=None
+
+[multi-turn] batch 37: tests 37-37 of 52
+Experiment: target-discovery-multi-turn-batch-37-538466f8
+- MT-037 | run=01a03009-5039-7a83-9de5-4374e8765940 | tool_selection=0.5, tool_precision=0.25, tool_recall=0.5, tool_ordering=0, latency_seconds=96.315203, total_tokens=17564, cost_usd=None
+
+[multi-turn] batch 38: tests 38-38 of 52
+Experiment: target-discovery-multi-turn-batch-38-488cec82
+- MT-038 | run=01a0300a-cb82-7972-84b6-4c375773f1ad | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=76.003405, total_tokens=30158, cost_usd=None
+
+[multi-turn] batch 39: tests 39-39 of 52
+Experiment: target-discovery-multi-turn-batch-39-3e704c80
+- MT-039 | run=01a0300b-f73e-7c10-b3f1-1f3cc91242b8 | tool_selection=1.0, tool_precision=0.4, tool_recall=1.0, tool_ordering=1, latency_seconds=117.856888, total_tokens=54810, cost_usd=None
+
+[multi-turn] batch 40: tests 40-40 of 52
+Experiment: target-discovery-multi-turn-batch-40-41a3972a
+- MT-040 | run=01a0300d-c699-79f1-b9fd-eeb80e639602 | tool_selection=0.5, tool_precision=1.0, tool_recall=0.5, tool_ordering=0, latency_seconds=37.305116, total_tokens=53121, cost_usd=None
+
+[multi-turn] batch 41: tests 41-41 of 52
+Experiment: target-discovery-multi-turn-batch-41-c98525eb
+- MT-041 | run=01a0300e-5b7f-75e2-beb7-b3953e55626b | tool_selection=1.0, tool_precision=0.6, tool_recall=1.0, tool_ordering=0, latency_seconds=245.332268, total_tokens=143274, cost_usd=None
+
+[multi-turn] batch 42: tests 42-42 of 52
+Experiment: target-discovery-multi-turn-batch-42-bb44064d
+- MT-042 | run=01a03012-2684-7f33-9098-d91fee2ac308 | tool_selection=0.6666666666666666, tool_precision=0.4, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=484.114297, total_tokens=80874, cost_usd=None
+
+[multi-turn] batch 43: tests 43-43 of 52
+Experiment: target-discovery-multi-turn-batch-43-bc287c0b
+- MT-043 | run=01a03019-957f-7120-a40f-674f2f907a4e | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=0, latency_seconds=123.294991, total_tokens=100906, cost_usd=None
+
+[multi-turn] batch 44: tests 44-44 of 52
+Experiment: target-discovery-multi-turn-batch-44-6248e9f0
+- MT-044 | run=01a0301b-7c0a-7803-812e-f997aad018ad | tool_selection=1.0, tool_precision=1.0, tool_recall=1.0, tool_ordering=0, latency_seconds=21.019953, total_tokens=52319, cost_usd=None
+
+[multi-turn] batch 45: tests 45-45 of 52
+Experiment: target-discovery-multi-turn-batch-45-0eec7954
+- MT-045 | run=01a0301b-d0d5-72b1-b082-2a82cd7ad13a | tool_selection=1.0, tool_precision=1.0, tool_recall=1.0, tool_ordering=1, latency_seconds=34.678222, total_tokens=87715, cost_usd=None
+
+[multi-turn] batch 46: tests 46-46 of 52
+Experiment: target-discovery-multi-turn-batch-46-2c10ca18
+- MT-046 | run=01a0301c-5b08-7470-8c6a-515584528a25 | tool_selection=1.0, tool_precision=0.25, tool_recall=1.0, tool_ordering=0, latency_seconds=507.505212, total_tokens=58548, cost_usd=None
+
+[multi-turn] batch 47: tests 47-47 of 52
+Experiment: target-discovery-multi-turn-batch-47-02e2c5a9
+- MT-047 | run=01a03024-1cd5-7f32-a935-b597b8e81007 | tool_selection=0.6666666666666666, tool_precision=0.4, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=417.611885, total_tokens=130432, cost_usd=None
+
+[multi-turn] batch 48: tests 48-48 of 52
+Experiment: target-discovery-multi-turn-batch-48-069c8c25
+- MT-048 | run=01a0302a-7f56-75b1-af2b-e4cd162962dd | tool_selection=1.0, tool_precision=1.0, tool_recall=1.0, tool_ordering=0, latency_seconds=33.123442, total_tokens=52367, cost_usd=None
+
+[multi-turn] batch 49: tests 49-49 of 52
+Experiment: target-discovery-multi-turn-batch-49-024c955e
+- MT-049 | run=01a0302b-0375-78b3-b418-9aeb13071b13 | tool_selection=0.5, tool_precision=0.5, tool_recall=0.5, tool_ordering=0, latency_seconds=28.440875, total_tokens=112755, cost_usd=None
+
+[multi-turn] batch 50: tests 50-50 of 52
+Experiment: target-discovery-multi-turn-batch-50-40104b37
+- MT-050 | run=01a0302b-7544-7bc3-8ac5-001fad994ea1 | tool_selection=0.6666666666666666, tool_precision=0.3333333333333333, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=107.345887, total_tokens=80569, cost_usd=None
+
+[multi-turn] batch 51: tests 51-51 of 52
+Experiment: target-discovery-multi-turn-batch-51-e1f2da8c
+- MT-051 | run=01a0302d-1e5f-74b2-a3df-5857190ece06 | tool_selection=1.0, tool_precision=0.6666666666666666, tool_recall=1.0, tool_ordering=0, latency_seconds=31.01174, total_tokens=170, cost_usd=None
+
+[multi-turn] batch 52: tests 52-52 of 52
+Experiment: target-discovery-multi-turn-batch-52-af7b4d8b
+- MT-052 | run=01a0302d-9c7f-7c60-9f65-4550125e2fb4 | tool_selection=0.5, tool_precision=0.25, tool_recall=0.5, tool_ordering=0, latency_seconds=52.820231, total_tokens=40674, cost_usd=None

@@ -1,0 +1,100 @@
+[multi-turn] batch 1: tests 1-5 of 52
+Experiment: target-discovery-multi-turn-batch-1-204a1d07
+- MT-001 | run=01a02ec4-ae2a-7e80-af2f-c738b13d971e | tool_selection=0.5, tool_precision=1.0, tool_recall=0.5, tool_ordering=0, latency_seconds=98.257542, total_tokens=0, cost_usd=None
+- MT-002 | run=01a02ec6-2e17-7c01-bdb0-5dd6d5d5ba42 | tool_selection=0.5, tool_precision=0.5, tool_recall=0.5, tool_ordering=0, latency_seconds=13.830093, total_tokens=0, cost_usd=None
+- MT-003 | run=01a02ec6-642c-73b0-8b9c-7b77664482e8 | tool_selection=0.5, tool_precision=0.5, tool_recall=0.5, tool_ordering=0, latency_seconds=0.564333, total_tokens=0, cost_usd=None
+- MT-004 | run=01a02ec6-666a-7162-87b5-60c0f14e8e84 | tool_selection=0.0, tool_precision=1.0, tool_recall=0.0, tool_ordering=0, latency_seconds=1.62868, total_tokens=0, cost_usd=None
+- MT-005 | run=01a02ec6-6cd4-7fb3-ae43-e7523a5e0717 | tool_selection=0.5, tool_precision=1.0, tool_recall=0.5, tool_ordering=0, latency_seconds=108.726893, total_tokens=0, cost_usd=None
+
+[multi-turn] batch 2: tests 6-10 of 52
+Experiment: target-discovery-multi-turn-batch-2-9394f294
+- MT-006 | run=01a02ec8-187c-79f1-813d-2e6840bfa254 | tool_selection=0.0, tool_precision=1.0, tool_recall=0.0, tool_ordering=0, latency_seconds=1.604698, total_tokens=0, cost_usd=None
+- MT-007 | run=01a02ec8-1ecf-7b01-b148-d103883944f3 | tool_selection=0.5, tool_precision=0.25, tool_recall=0.5, tool_ordering=0, latency_seconds=31.768376, total_tokens=0, cost_usd=None
+- MT-008 | run=01a02ec8-9af9-7331-8187-b1230f4671d9 | tool_selection=0.0, tool_precision=1.0, tool_recall=0.0, tool_ordering=0, latency_seconds=1.711173, total_tokens=0, cost_usd=None
+- MT-009 | run=01a02ec8-a1b5-72e1-9634-b601a0b3d5b2 | tool_selection=0.0, tool_precision=1.0, tool_recall=0.0, tool_ordering=0, latency_seconds=1.787404, total_tokens=0, cost_usd=None
+- MT-010 | run=01a02ec8-a8bd-72a3-9fda-85136974f1f6 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=0, latency_seconds=84.480923, total_tokens=0, cost_usd=None
+
+[multi-turn] batch 1: tests 1-5 of 52
+Experiment: target-discovery-multi-turn-batch-1-16a489aa
+- MT-001 | run=01a02ecb-2aed-7003-800d-80446be5db60 | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=1, latency_seconds=238.455255, total_tokens=62168, cost_usd=None
+- MT-002 | run=01a02ece-d735-7140-80db-801a09311fcc | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=76.678532, total_tokens=33776, cost_usd=None
+- MT-003 | run=01a02ed0-02de-7971-b31c-22b5b9d61ea6 | tool_selection=0.5, tool_precision=0.5, tool_recall=0.5, tool_ordering=0, latency_seconds=15.582313, total_tokens=0, cost_usd=None
+- MT-004 | run=01a02ed0-3fcb-7ae1-a0a8-ee39d9e2e9ef | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=0, latency_seconds=259.720938, total_tokens=125601, cost_usd=None
+- MT-005 | run=01a02ed4-450e-7d93-b1da-8269f90fba49 | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=0, latency_seconds=367.691717, total_tokens=80609, cost_usd=None
+
+[multi-turn] batch 2: tests 6-10 of 52
+Experiment: target-discovery-multi-turn-batch-2-6e51dd30
+- MT-006 | run=01a02ed9-f183-7ee0-b812-bc91600dd841 | tool_selection=1.0, tool_precision=0.25, tool_recall=1.0, tool_ordering=1, latency_seconds=186.277666, total_tokens=85502, cost_usd=None
+- MT-007 | run=01a02edc-d7d9-79a3-9018-d748071b695c | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=0, latency_seconds=103.406269, total_tokens=47873, cost_usd=None
+- MT-008 | run=01a02ede-6be4-7a42-9ef2-9570163c5926 | tool_selection=1.0, tool_precision=0.4, tool_recall=1.0, tool_ordering=0, latency_seconds=119.214057, total_tokens=72508, cost_usd=None
+- MT-009 | run=01a02ee0-4480-7d62-a5ee-bf0d20ab3ba7 | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=1, latency_seconds=250.484938, total_tokens=85877, cost_usd=None
+- MT-010 | run=01a02ee4-2030-7bb0-8df9-e167d108a3d8 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=0, latency_seconds=238.646998, total_tokens=73285, cost_usd=None
+
+[multi-turn] batch 3: tests 11-15 of 52
+Experiment: target-discovery-multi-turn-batch-3-ce1eabd9
+- MT-011 | run=01a02ee7-d97a-78e1-af2c-ebeff2c1f31f | tool_selection=1.0, tool_precision=0.4, tool_recall=1.0, tool_ordering=1, latency_seconds=132.683354, total_tokens=74762, cost_usd=None
+- MT-012 | run=01a02ee9-e736-77d0-90ca-bcbf6a7139ee | tool_selection=0.3333333333333333, tool_precision=0.3333333333333333, tool_recall=0.3333333333333333, tool_ordering=0, latency_seconds=135.181973, total_tokens=43204, cost_usd=None
+- MT-013 | run=01a02eeb-fe44-72f3-934d-253cd51f95d6 | tool_selection=0.6666666666666666, tool_precision=0.5, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=524.599479, total_tokens=61318, cost_usd=None
+- MT-014 | run=01a02ef4-013a-7050-a469-e967d7b8ba04 | tool_selection=0.5, tool_precision=0.3333333333333333, tool_recall=0.5, tool_ordering=0, latency_seconds=125.812235, total_tokens=11681, cost_usd=None
+- MT-015 | run=01a02ef5-eee3-77f2-a1f7-8710a6782ffb | tool_selection=0.0, tool_precision=1.0, tool_recall=0.0, tool_ordering=0, latency_seconds=3.102215, total_tokens=0, cost_usd=None
+
+[multi-turn] batch 4: tests 16-20 of 52
+Experiment: target-discovery-multi-turn-batch-4-1e4c6471
+- MT-016 | run=01a02ef5-fd95-7f92-a485-14c23d01a523 | tool_selection=0.3333333333333333, tool_precision=0.3333333333333333, tool_recall=0.3333333333333333, tool_ordering=0, latency_seconds=295.997805, total_tokens=36075, cost_usd=None
+- MT-017 | run=01a02efa-81ec-7390-9223-bf1f8a427e57 | tool_selection=0.6666666666666666, tool_precision=0.6666666666666666, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=50.652145, total_tokens=110761, cost_usd=None
+- MT-018 | run=01a02efb-47ff-7173-9314-ea73cdc62884 | tool_selection=0.5, tool_precision=0.3333333333333333, tool_recall=0.5, tool_ordering=0, latency_seconds=313.300689, total_tokens=49628, cost_usd=None
+- MT-019 | run=01a02f00-0fec-7f21-ba29-c663a88ec798 | tool_selection=0.5, tool_precision=0.3333333333333333, tool_recall=0.5, tool_ordering=0, latency_seconds=296.934055, total_tokens=72812, cost_usd=None
+- MT-020 | run=01a02f04-97ee-7e60-86eb-2cbf6a203480 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=99.803295, total_tokens=50435, cost_usd=None
+
+[multi-turn] batch 5: tests 21-25 of 52
+Experiment: target-discovery-multi-turn-batch-5-21468c97
+- MT-021 | run=01a02f06-20b1-7613-8873-5304d7e3d6a1 | tool_selection=0.0, tool_precision=0.0, tool_recall=0.0, tool_ordering=0, latency_seconds=103.815624, total_tokens=60447, cost_usd=None
+- MT-022 | run=01a02f07-b66a-7dc1-bd5a-31a49d234e42 | tool_selection=1.0, tool_precision=0.25, tool_recall=1.0, tool_ordering=1, latency_seconds=53.285514, total_tokens=87013, cost_usd=None
+- MT-023 | run=01a02f08-86b4-7be0-8413-05ea1a89623d | tool_selection=0.5, tool_precision=0.14285714285714285, tool_recall=0.5, tool_ordering=0, latency_seconds=109.543256, total_tokens=61830, cost_usd=None
+- MT-024 | run=01a02f0a-32cc-7a91-9d40-246af63bda88 | tool_selection=1.0, tool_precision=0.25, tool_recall=1.0, tool_ordering=0, latency_seconds=33.73461, total_tokens=71516, cost_usd=None
+- MT-025 | run=01a02f0a-b6b7-73c3-99a8-227d2d571310 | tool_selection=0.3333333333333333, tool_precision=0.3333333333333333, tool_recall=0.3333333333333333, tool_ordering=0, latency_seconds=306.974182, total_tokens=73264, cost_usd=None
+
+[multi-turn] batch 6: tests 26-30 of 52
+Experiment: target-discovery-multi-turn-batch-6-7b43f1f0
+- MT-026 | run=01a02f0f-685c-7590-ac03-da68f6e0f1c3 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=106.034864, total_tokens=65837, cost_usd=None
+- MT-027 | run=01a02f11-06c1-73f0-84f6-8105c1a23571 | tool_selection=1.0, tool_precision=0.6666666666666666, tool_recall=1.0, tool_ordering=0, latency_seconds=38.177879, total_tokens=12021, cost_usd=None
+- MT-028 | run=01a02f11-9bf3-7860-b9e9-05c319a6cc36 | tool_selection=0.3333333333333333, tool_precision=0.25, tool_recall=0.3333333333333333, tool_ordering=0, latency_seconds=251.272533, total_tokens=77176, cost_usd=None
+- MT-029 | run=01a02f15-7192-76e3-bd4c-05e5790360d7 | tool_selection=0.5, tool_precision=0.2, tool_recall=0.5, tool_ordering=0, latency_seconds=23.914591, total_tokens=55723, cost_usd=None
+- MT-030 | run=01a02f15-cf16-7a33-8008-5a8d9bc9768b | tool_selection=1.0, tool_precision=0.25, tool_recall=1.0, tool_ordering=1, latency_seconds=186.623833, total_tokens=76524, cost_usd=None
+
+[multi-turn] batch 7: tests 31-35 of 52
+Experiment: target-discovery-multi-turn-batch-7-f4b1ac70
+- MT-031 | run=01a02f18-ab03-7250-8fb9-be0f09dc1e91 | tool_selection=0.5, tool_precision=0.16666666666666666, tool_recall=0.5, tool_ordering=0, latency_seconds=143.425357, total_tokens=110564, cost_usd=None
+- MT-032 | run=01a02f1a-db5a-7b22-a3a2-82a4774aab03 | tool_selection=1.0, tool_precision=0.2, tool_recall=1.0, tool_ordering=0, latency_seconds=166.879202, total_tokens=92579, cost_usd=None
+- MT-033 | run=01a02f1d-6771-7f51-b6db-a06c4be66902 | tool_selection=1.0, tool_precision=0.2857142857142857, tool_recall=1.0, tool_ordering=1, latency_seconds=112.583174, total_tokens=33013, cost_usd=None
+- MT-034 | run=01a02f1f-1f61-7361-bc9d-353fbc116dcc | tool_selection=1.0, tool_precision=0.14285714285714285, tool_recall=1.0, tool_ordering=1, latency_seconds=97.54864, total_tokens=39185, cost_usd=None
+- MT-035 | run=01a02f20-9c9a-7e83-850d-b67ced695b1a | tool_selection=1.0, tool_precision=1.0, tool_recall=1.0, tool_ordering=1, latency_seconds=7.658991, total_tokens=34760, cost_usd=None
+
+[multi-turn] batch 8: tests 36-40 of 52
+Experiment: target-discovery-multi-turn-batch-8-00da7bf4
+- MT-036 | run=01a02f20-bcf8-7da2-94be-1eb6022a695d | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=99.036746, total_tokens=29654, cost_usd=None
+- MT-037 | run=01a02f22-3ffd-7aa1-97be-914d8c3e3bd5 | tool_selection=1.0, tool_precision=0.4, tool_recall=1.0, tool_ordering=0, latency_seconds=103.970116, total_tokens=84394, cost_usd=None
+- MT-038 | run=01a02f23-d63b-75d3-8b3a-1445b1841fa4 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=1, latency_seconds=67.572034, total_tokens=31732, cost_usd=None
+- MT-039 | run=01a02f24-de4f-7f43-b8df-8d09e642cbbf | tool_selection=1.0, tool_precision=0.4, tool_recall=1.0, tool_ordering=1, latency_seconds=97.791264, total_tokens=70270, cost_usd=None
+- MT-040 | run=01a02f26-5c7e-7852-913e-a1d2a958ecd3 | tool_selection=0.5, tool_precision=1.0, tool_recall=0.5, tool_ordering=0, latency_seconds=54.073014, total_tokens=35250, cost_usd=None
+
+[multi-turn] batch 9: tests 41-45 of 52
+Experiment: target-discovery-multi-turn-batch-9-07734888
+- MT-041 | run=01a02f27-32a4-7530-ba0d-e5e519072d75 | tool_selection=0.6666666666666666, tool_precision=0.5, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=262.394464, total_tokens=63331, cost_usd=None
+- MT-042 | run=01a02f2b-374c-7f72-92ec-e14fc4a85165 | tool_selection=0.3333333333333333, tool_precision=0.3333333333333333, tool_recall=0.3333333333333333, tool_ordering=0, latency_seconds=242.887313, total_tokens=62037, cost_usd=None
+- MT-043 | run=01a02f2e-ec27-7a03-8014-686b91a5855b | tool_selection=1.0, tool_precision=0.6, tool_recall=1.0, tool_ordering=0, latency_seconds=134.794424, total_tokens=108206, cost_usd=None
+- MT-044 | run=01a02f30-ff8e-7d41-b50e-ff3bf3690d1b | tool_selection=1.0, tool_precision=1.0, tool_recall=1.0, tool_ordering=0, latency_seconds=56.371783, total_tokens=34755, cost_usd=None
+- MT-045 | run=01a02f31-dbd0-7513-8a5b-a35dad4c6ce5 | tool_selection=1.0, tool_precision=1.0, tool_recall=1.0, tool_ordering=1, latency_seconds=38.096839, total_tokens=58107, cost_usd=None
+
+[multi-turn] batch 10: tests 46-50 of 52
+Experiment: target-discovery-multi-turn-batch-10-31dd5bdc
+- MT-046 | run=01a02f32-73c1-7600-b02f-c22cb91ce738 | tool_selection=1.0, tool_precision=0.2, tool_recall=1.0, tool_ordering=0, latency_seconds=716.571681, total_tokens=104413, cost_usd=None
+- MT-047 | run=01a02f3d-6302-76b0-bf19-4ea53adf30b6 | tool_selection=0.6666666666666666, tool_precision=0.5, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=208.84644, total_tokens=63915, cost_usd=None
+- MT-048 | run=01a02f40-92f0-7303-ae76-397e26f3ad86 | tool_selection=1.0, tool_precision=1.0, tool_recall=1.0, tool_ordering=0, latency_seconds=45.803455, total_tokens=34655, cost_usd=None
+- MT-049 | run=01a02f41-45ef-7e51-8938-761780be8f8d | tool_selection=0.75, tool_precision=0.5, tool_recall=0.75, tool_ordering=0, latency_seconds=26.355079, total_tokens=82044, cost_usd=None
+- MT-050 | run=01a02f41-acfd-70e2-9c62-17a336ebbb1e | tool_selection=0.6666666666666666, tool_precision=0.2857142857142857, tool_recall=0.6666666666666666, tool_ordering=0, latency_seconds=132.21944, total_tokens=100474, cost_usd=None
+
+[multi-turn] batch 11: tests 51-52 of 52
+Experiment: target-discovery-multi-turn-batch-11-0901a760
+- MT-051 | run=01a02f43-b98c-72e3-b3dc-055d5c81a926 | tool_selection=1.0, tool_precision=0.6666666666666666, tool_recall=1.0, tool_ordering=0, latency_seconds=32.792737, total_tokens=0, cost_usd=None
+- MT-052 | run=01a02f44-39b4-7f82-abb5-f1df3e7bf239 | tool_selection=1.0, tool_precision=0.3333333333333333, tool_recall=1.0, tool_ordering=0, latency_seconds=180.464142, total_tokens=95469, cost_usd=None

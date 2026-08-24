@@ -26,6 +26,11 @@ except Exception:  # pragma: no cover - optional dependency
     ChatGoogleGenerativeAI = None
 
 try:
+    from langchain_anthropic import ChatAnthropic
+except Exception:  # pragma: no cover - optional dependency
+    ChatAnthropic = None
+
+try:
     from langchain_ollama import ChatOllama
 except Exception:  # pragma: no cover - optional dependency
     ChatOllama = None
@@ -78,6 +83,8 @@ def _provider_candidates() -> list[str]:
         return [requested]
 
     candidates: list[str] = []
+    if ChatAnthropic is not None and str(os.getenv("ANTHROPIC_API_KEY") or "").strip():
+        candidates.append("claude")
     if ChatGoogleGenerativeAI is not None and str(os.getenv("GOOGLE_API_KEY") or "").strip():
         candidates.append("gemini")
     if ChatOllama is not None and str(getattr(SETTINGS, "ollama_base_url", "") or "").strip():
@@ -87,11 +94,25 @@ def _provider_candidates() -> list[str]:
     if ChatGroq is not None and str(os.getenv("GROQ_API_KEY") or "").strip():
         candidates.append("groq")
 
-    return candidates or ["gemini", "ollama", "mistral", "groq"]
+    return candidates or ["gemini", "ollama", "mistral", "groq", "claude"]
 
 
 def _timeout_seconds() -> float:
     return max(5.0, float(getattr(SETTINGS, "http_timeout_seconds", 30) or 30))
+
+
+def _claude_model_name() -> str:
+    model = str(getattr(SETTINGS, "claude_model", "") or "").strip()
+    aliases = {
+        "claude-sonnet-5": "claude-sonnet-5",
+        "claude-sonnet-latest": "claude-sonnet-4-20250514",
+        "claude-3-5-sonnet-latest": "claude-sonnet-4-20250514",
+        "opus": "claude-opus-4-1-20250805",
+        "claude-opus-latest": "claude-opus-4-1-20250805",
+        "haiku": "claude-3-5-haiku-20241022",
+        "claude-haiku-latest": "claude-3-5-haiku-20241022",
+    }
+    return aliases.get(model.lower(), model or "claude-sonnet-4-20250514")
 
 
 def _build_provider_specs() -> list[dict[str, Any]]:
@@ -188,6 +209,27 @@ def _build_provider_specs() -> list[dict[str, Any]]:
             )
             continue
 
+        if provider in {"claude", "anthropic"}:
+            if ChatAnthropic is None:
+                specs.append(
+                    {
+                        "name": "claude",
+                        "factory_error": "Claude provider requested but `langchain_anthropic` is not installed.",
+                    }
+                )
+                continue
+            specs.append(
+                {
+                    "name": "claude",
+                    "factory": lambda: ChatAnthropic(
+                        model=_claude_model_name(),
+                        timeout=timeout,
+                        max_retries=0,
+                    ),
+                }
+            )
+            continue
+
         specs.append({"name": provider, "factory_error": f"Unsupported LLM provider: {provider}"})
 
     return specs
@@ -220,10 +262,10 @@ def _is_connectivity_error(exc: Exception) -> bool:
 
 def _format_llm_failure(errors: list[str], connectivity_failures: int) -> str:
     provider_hint = (
-        "Set `LLM_PROVIDER` to `gemini`, `ollama`, `mistral`, or `groq`. "
-        "For hosted providers, provide the matching API key (`GOOGLE_API_KEY`, `MISTRAL_API_KEY`, or `GROQ_API_KEY`). "
+        "Set `LLM_PROVIDER` to `gemini`, `ollama`, `mistral`, `groq`, or `claude`. "
+        "For hosted providers, provide the matching API key (`GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, or `ANTHROPIC_API_KEY`). "
         "For Ollama, set `OLLAMA_MODEL` and `OLLAMA_BASE_URL`. "
-        "Optionally set `GEMINI_MODEL`, `MISTRAL_MODEL`, or `GROQ_MODEL`."
+        "Optionally set `GEMINI_MODEL`, `MISTRAL_MODEL`, `GROQ_MODEL`, or `CLAUDE_MODEL`."
     )
     details = " | ".join(errors) if errors else "No provider could be initialized."
     if connectivity_failures:

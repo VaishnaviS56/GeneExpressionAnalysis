@@ -1041,13 +1041,30 @@ def _search_openalex(query: str, *, top_n: int) -> tuple[list[dict[str, Any]], d
     return papers, {"status": "ok", "query": query, "count": len(papers)}
 
 
+def _print_retrieval_progress(source: str, current: int, total: int, *, found: int = 0, query: str = "") -> None:
+    total = max(1, int(total or 1))
+    current = max(0, min(int(current or 0), total))
+    width = 20
+    filled = round(width * current / total)
+    bar = "#" * filled + "-" * (width - filled)
+    detail = f" found={found}"
+    if query:
+        detail += f" query={_clean_whitespace(query)[:80]}"
+    print(f"[literature retrieval] {source:14} [{bar}] {current}/{total}{detail}", flush=True)
+
+
 def _search_openalex_many(queries: list[str], *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     papers: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
-    for query in queries[:6]:
+    selected_queries = queries[:6]
+    total = len(selected_queries)
+    _print_retrieval_progress("OpenAlex", 0, total, found=0)
+    for index, query in enumerate(selected_queries, start=1):
+        _print_retrieval_progress("OpenAlex", index - 1, total, found=len(papers), query=query)
         rows, status = _search_openalex(query, top_n=top_n)
         papers.extend(rows)
         attempts.append(status)
+        _print_retrieval_progress("OpenAlex", index, total, found=len(papers), query=query)
     return papers, {"status": "ok" if papers else "no_results", "queries": attempts, "count": len(papers)}
 
 
@@ -1139,10 +1156,15 @@ def _search_pubmed(query: str, *, top_n: int) -> tuple[list[dict[str, Any]], dic
 def _search_pubmed_many(queries: list[str], *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     papers: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
-    for query in queries[:10]:
+    selected_queries = queries[:10]
+    total = len(selected_queries)
+    _print_retrieval_progress("PubMed", 0, total, found=0)
+    for index, query in enumerate(selected_queries, start=1):
+        _print_retrieval_progress("PubMed", index - 1, total, found=len(papers), query=query)
         rows, status = _search_pubmed(query, top_n=top_n)
         papers.extend(rows)
         attempts.append(status)
+        _print_retrieval_progress("PubMed", index, total, found=len(papers), query=query)
         if len(papers) >= top_n * 3:
             break
     return papers, {"status": "ok" if papers else "no_results", "queries": attempts, "count": len(papers)}
@@ -1200,10 +1222,15 @@ def _search_google_scholar(query: str, *, top_n: int) -> tuple[list[dict[str, An
 def _search_google_scholar_many(queries: list[str], *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     papers: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
-    for query in queries[:5]:
+    selected_queries = queries[:5]
+    total = len(selected_queries)
+    _print_retrieval_progress("GoogleScholar", 0, total, found=0)
+    for index, query in enumerate(selected_queries, start=1):
+        _print_retrieval_progress("GoogleScholar", index - 1, total, found=len(papers), query=query)
         rows, status = _search_google_scholar(query, top_n=top_n)
         papers.extend(rows)
         attempts.append(status)
+        _print_retrieval_progress("GoogleScholar", index, total, found=len(papers), query=query)
         if len(papers) >= top_n * 2:
             break
     return papers, {"status": "ok" if papers else "no_results", "queries": attempts, "count": len(papers)}
@@ -1236,9 +1263,15 @@ def fetch_openalex_papers_and_genes(
     evidence_statement = _extract_evidence_statement(user_query)
     per_source = max(5, min(int(top_n or 20), 20))
 
+    print("[literature retrieval] starting external source searches", flush=True)
     openalex_papers, openalex_status = _search_openalex_many(queries["plain"], top_n=per_source)
     pubmed_papers, pubmed_status = _search_pubmed_many(queries["pubmed"], top_n=per_source)
     scholar_papers, scholar_status = _search_google_scholar_many(queries["scholar"], top_n=max(5, min(per_source, 10)))
+    print(
+        "[literature retrieval] external searches complete "
+        f"openalex={len(openalex_papers)} pubmed={len(pubmed_papers)} google_scholar={len(scholar_papers)}",
+        flush=True,
+    )
 
     deduped_papers = _dedupe_papers(openalex_papers + pubmed_papers + scholar_papers)
     filtered_papers = _filter_evidence_statement_papers(
