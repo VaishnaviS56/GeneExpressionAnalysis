@@ -48,13 +48,14 @@ to update examples.
 Run hallucination/groundedness evaluation plus human review queueing:
 
 ```powershell
-$env:OPENAI_API_KEY = "..."
+$env:GOOGLE_API_KEY = "..."
+$env:HALLUCINATION_JUDGE_MODEL = "gemini-3.5-flash"
 .\.venv\Scripts\python.exe -m evaluators.run_quality_evals single
 .\.venv\Scripts\python.exe -m evaluators.run_quality_evals multi
 .\.venv\Scripts\python.exe -m evaluators.run_quality_evals all
 ```
 
-This uses `HALLUCINATION_JUDGE_MODEL`, defaulting to `gpt-5`, for
+This uses `HALLUCINATION_JUDGE_MODEL`, defaulting to `gemini-3.5-flash`, for
 `response_groundedness` and `evidence_validity`, then adds each completed
 experiment batch to the `Target Discovery Response Quality` annotation queue.
 Use `--no-human-review` to run only the judge evaluators.

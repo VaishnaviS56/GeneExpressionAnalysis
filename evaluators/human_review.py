@@ -3,6 +3,7 @@ adding experiment runs for human evaluation.
 """
 
 from langsmith import Client
+from langsmith.utils import LangSmithError
 
 QUEUE_NAME = "Target Discovery Response Quality"
 
@@ -21,11 +22,10 @@ def get_or_create_queue():
     AnnotationQueue
         LangSmith annotation queue object.
     """
-    try:
-        client = get_client()
-        queue = client.read_annotation_queue(
-            queue_name=QUEUE_NAME
-        )
+    client = get_client()
+    queues = list(client.list_annotation_queues(name=QUEUE_NAME, limit=1))
+    if queues:
+        queue = queues[0]
 
         print(
             f"Found existing annotation queue: "
@@ -34,13 +34,12 @@ def get_or_create_queue():
 
         return queue
 
-    except Exception:
-        print(
-            f"Creating annotation queue: "
-            f"{QUEUE_NAME}"
-        )
+    print(
+        f"Creating annotation queue: "
+        f"{QUEUE_NAME}"
+    )
 
-        client = get_client()
+    try:
         queue = client.create_annotation_queue(
             name=QUEUE_NAME,
             description=(
@@ -48,8 +47,14 @@ def get_or_create_queue():
                 "target discovery agent evaluations."
             ),
         )
-
         return queue
+    except LangSmithError as exc:
+        if "already exists" not in str(exc).lower():
+            raise
+        queues = list(client.list_annotation_queues(name=QUEUE_NAME, limit=1))
+        if queues:
+            return queues[0]
+        raise
 
 
 def add_experiment_to_queue(experiment_name: str):

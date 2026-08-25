@@ -1,13 +1,26 @@
 from functools import lru_cache
 import json
 import os
+import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+try:
+    from dotenv import find_dotenv, load_dotenv
+except Exception:  # pragma: no cover - optional dependency
+    def find_dotenv(*args, **kwargs) -> str:
+        return ""
+
+    def load_dotenv(*args, **kwargs) -> bool:
+        return False
 
 
-JUDGE_MODEL = os.getenv("HALLUCINATION_JUDGE_MODEL", "gpt-5")
+load_dotenv(find_dotenv(usecwd=True), override=False)
+
+JUDGE_MODEL = os.getenv("HALLUCINATION_JUDGE_MODEL", "gemini-3.5-flash")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or None
 
 
 response_groundedness_prompt = """
@@ -169,9 +182,10 @@ def example_query(example) -> str:
 
 @lru_cache(maxsize=1)
 def get_judge_llm():
-    return ChatOpenAI(
+    return ChatGoogleGenerativeAI(
         model=JUDGE_MODEL,
         temperature=0,
+        api_key=GOOGLE_API_KEY,
     )
 
 
@@ -186,8 +200,32 @@ def run_judge(prompt: str) -> dict[str, Any]:
 
     content = response.content
 
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict):
+                text = part.get("text") or part.get("content")
+                if text:
+                    text_parts.append(str(text))
+            elif part:
+                text_parts.append(str(part))
+        content = "\n".join(text_parts)
+
+    content = str(content or "").strip()
+    fenced_match = re.search(r"```(?:json)?\s*(.*?)\s*```", content, flags=re.DOTALL | re.IGNORECASE)
+    if fenced_match:
+        content = fenced_match.group(1).strip()
+    else:
+        object_match = re.search(r"\{.*\}", content, flags=re.DOTALL)
+        if object_match:
+            content = object_match.group(0).strip()
+
     try:
-        return json.loads(content)
+        result = json.loads(content)
+        score = result.get("score")
+        if isinstance(score, str) and score.strip().replace(".", "", 1).isdigit():
+            result["score"] = float(score) if "." in score else int(score)
+        return result
 
     except Exception:
         return {
