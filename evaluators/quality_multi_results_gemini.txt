@@ -1,0 +1,288 @@
+
+[multi-turn-quality] batch 1: tests 1-1 of 52
+Experiment: target-discovery-multi-turn-quality-batch-1-67b5d61a
+- MT-001 | run=01a03a06-bcd8-7fb3-91e3-e0c899bb6ca1 | response_groundedness=5, evidence_validity=5
+
+[multi-turn-quality] batch 2: tests 2-2 of 52
+Experiment: target-discovery-multi-turn-quality-batch-2-fa02bfbf
+- MT-002 | run=01a03a0e-4d6e-7600-89db-4568bf89e944 | response_groundedness=5, evidence_validity=5
+
+[multi-turn-quality] batch 3: tests 3-3 of 52
+Experiment: target-discovery-multi-turn-quality-batch-3-abc5ce47
+- MT-003 | run=01a03a10-09f8-79d3-b427-0f242eb70aa7 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 4: tests 4-4 of 52
+Experiment: target-discovery-multi-turn-quality-batch-4-7d7a942d
+- MT-004 | run=01a03a10-6626-7553-b920-8f59abad75ea | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 5: tests 5-5 of 52
+Experiment: target-discovery-multi-turn-quality-batch-5-b2269911
+- MT-005 | run=01a03a13-1a07-7ff0-9b21-742b2cf752e0 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 6: tests 6-6 of 52
+Experiment: target-discovery-multi-turn-quality-batch-6-9b1d53dd
+- MT-006 | run=01a03a14-b6f4-7b80-9071-44eab4a1a339 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 7: tests 7-7 of 52
+Experiment: target-discovery-multi-turn-quality-batch-7-f641d3fb
+- MT-007 | run=01a03a15-f8ad-7df3-876f-271e78693afe | response_groundedness=1, evidence_validity=3
+
+[multi-turn-quality] batch 8: tests 8-8 of 52
+Experiment: target-discovery-multi-turn-quality-batch-8-16e86bef
+- MT-008 | run=01a03a17-c3de-7363-85ee-a9ac1594df8e | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 9: tests 9-9 of 52
+Experiment: target-discovery-multi-turn-quality-batch-9-50363de7
+- MT-009 | run=01a03a1a-58c4-7193-939b-b8d471be0033 | response_groundedness=5, evidence_validity=5
+
+[multi-turn-quality] batch 10: tests 10-10 of 52
+Experiment: target-discovery-multi-turn-quality-batch-10-311e3d90
+- MT-010 | run=01a03a20-989f-7a00-83ca-215ade81d02d | response_groundedness=5, evidence_validity=5
+
+[multi-turn-quality] batch 11: tests 11-11 of 52
+Experiment: target-discovery-multi-turn-quality-batch-11-427add7f
+- MT-011 | run=01a03a23-211b-7672-a2b1-8da6af642c42 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 12: tests 12-12 of 52
+Experiment: target-discovery-multi-turn-quality-batch-12-71eef130
+- MT-012 | run=01a03a24-d525-77d3-bfb1-4166d2668f22 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 13: tests 13-13 of 52
+Experiment: target-discovery-multi-turn-quality-batch-13-c06d5082
+- MT-013 | run=01a03a27-94e8-71d3-afe8-59b0efab45de | response_groundedness=5, evidence_validity=3
+
+[multi-turn-quality] batch 14: tests 14-14 of 52
+Experiment: target-discovery-multi-turn-quality-batch-14-7b8c738a
+- MT-014 | run=01a03a2f-9025-7963-9b0e-d18de51c4788 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 15: tests 15-15 of 52
+Experiment: target-discovery-multi-turn-quality-batch-15-05becb9f
+- MT-015 | run=01a03a31-67ce-7101-a415-5d68356ae91f | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 16: tests 16-16 of 52
+Experiment: target-discovery-multi-turn-quality-batch-16-b0929b25
+- MT-016 | run=01a03a34-2e62-77a0-a4e5-e2482004f39b | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 17: tests 17-17 of 52
+Experiment: target-discovery-multi-turn-quality-batch-17-ef8e76b6
+- MT-017 | run=01a03a37-ac7f-7f52-9153-c441845921c2 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 18: tests 18-18 of 52
+Experiment: target-discovery-multi-turn-quality-batch-18-fab0bf6d
+- MT-018 | run=01a03a38-3b15-7ad3-b7a3-5c265e4757f6 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 19: tests 19-19 of 52
+Experiment: target-discovery-multi-turn-quality-batch-19-b97cb4b9
+- MT-019 | run=01a03a3b-c04f-74c3-a646-c95770e821e3 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 20: tests 20-20 of 52
+Experiment: target-discovery-multi-turn-quality-batch-20-dbed68d5
+- MT-020 | run=01a03a3f-52a0-7b02-b315-23eff2083ed3 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 21: tests 21-21 of 52
+Experiment: target-discovery-multi-turn-quality-batch-21-fa08502b
+- MT-021 | run=01a03a41-f3c4-7641-bc12-b2e6b7ac1b55 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 22: tests 22-22 of 52
+Experiment: target-discovery-multi-turn-quality-batch-22-338ef905
+- MT-022 | run=01a03a43-5d93-7310-9529-55d66d879e4a | response_groundedness=5, evidence_validity=3
+
+[multi-turn-quality] batch 23: tests 23-23 of 52
+Experiment: target-discovery-multi-turn-quality-batch-23-edae9e2e
+- MT-023 | run=01a03a44-42d7-7ee0-8917-aa1f153ad93c | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 24: tests 24-24 of 52
+Experiment: target-discovery-multi-turn-quality-batch-24-04ce0100
+- MT-024 | run=01a03a46-f766-7513-8bb2-1f54bc69c599 | response_groundedness=1, evidence_validity=2
+
+[multi-turn-quality] batch 25: tests 25-25 of 52
+Experiment: target-discovery-multi-turn-quality-batch-25-85c0f489
+- MT-025 | run=01a03a47-b4d5-7243-9dda-1d3207ea1046 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 26: tests 26-26 of 52
+Experiment: target-discovery-multi-turn-quality-batch-26-650001cf
+- MT-026 | run=01a03a4b-7566-76d1-b305-8f67eb2ae348 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 27: tests 27-27 of 52
+Experiment: target-discovery-multi-turn-quality-batch-27-7af0fff4
+- MT-027 | run=01a03a4b-a941-7cb0-a936-aa71f9c947cb | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 28: tests 28-28 of 52
+Experiment: target-discovery-multi-turn-quality-batch-28-54406568
+- MT-028 | run=01a03a4c-8249-7cb0-aad3-6809d638dd8c | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 29: tests 29-29 of 52
+Experiment: target-discovery-multi-turn-quality-batch-29-e8a6cfa7
+- MT-029 | run=01a03a4c-be6d-7a21-a30a-a23d8c3b230f | response_groundedness=5, evidence_validity=3
+
+[multi-turn-quality] batch 30: tests 30-30 of 52
+Experiment: target-discovery-multi-turn-quality-batch-30-807ec0de
+- MT-030 | run=01a03a4d-979c-75e3-9ec4-8c63285be2ce | response_groundedness=1, evidence_validity=2
+
+[multi-turn-quality] batch 31: tests 31-31 of 52
+Experiment: target-discovery-multi-turn-quality-batch-31-58d4f8df
+- MT-031 | run=01a03a51-cca8-70a2-83db-0a17da8c4adb | response_groundedness=2, evidence_validity=5
+
+[multi-turn-quality] batch 32: tests 32-32 of 52
+Experiment: target-discovery-multi-turn-quality-batch-32-2d66075d
+- MT-032 | run=01a03a54-e0d2-7aa1-bdd4-b668523bda80 | response_groundedness=2, evidence_validity=5
+
+[multi-turn-quality] batch 33: tests 33-33 of 52
+Experiment: target-discovery-multi-turn-quality-batch-33-29e3132d
+- MT-033 | run=01a03a57-9f27-7cf2-be12-88dab0c15a58 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 34: tests 34-34 of 52
+Experiment: target-discovery-multi-turn-quality-batch-34-902d2a05
+- MT-034 | run=01a03a5a-1762-7ed3-924c-5c786d7d2398 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 35: tests 35-35 of 52
+Experiment: target-discovery-multi-turn-quality-batch-35-0a6a1d48
+- MT-035 | run=01a03a5b-b462-7b31-bae1-62c251a9da96 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 36: tests 36-36 of 52
+Experiment: target-discovery-multi-turn-quality-batch-36-0ca2140c
+- MT-036 | run=01a03a5c-dc92-7540-80f3-cba21a582558 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 37: tests 37-37 of 52
+Experiment: target-discovery-multi-turn-quality-batch-37-31516b05
+- MT-037 | run=01a03a5e-afe9-7213-b1ac-da0becea4f97 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 38: tests 38-38 of 52
+Experiment: target-discovery-multi-turn-quality-batch-38-666d3692
+- MT-038 | run=01a03a60-99c4-7123-979c-4101985beb5b | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 39: tests 39-39 of 52
+Experiment: target-discovery-multi-turn-quality-batch-39-e911a74d
+- MT-039 | run=01a03a61-f0de-7031-857c-11c9fc5ffb4d | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 40: tests 40-40 of 52
+Experiment: target-discovery-multi-turn-quality-batch-40-d4c2703d
+- MT-040 | run=01a03a63-242f-7021-9046-401a1043e1de | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 41: tests 41-41 of 52
+Experiment: target-discovery-multi-turn-quality-batch-41-4d31cea1
+- MT-041 | run=01a03a64-5506-73a1-b4a0-c739ea4a6265 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 42: tests 42-42 of 52
+Experiment: target-discovery-multi-turn-quality-batch-42-9091b58b
+- MT-042 | run=01a03a66-9ec4-7841-8340-9914c5d899fd | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 43: tests 43-43 of 52
+Experiment: target-discovery-multi-turn-quality-batch-43-a489e830
+- MT-043 | run=01a03a6a-f6e2-7163-9665-8b8843a514cf | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 44: tests 44-44 of 52
+Experiment: target-discovery-multi-turn-quality-batch-44-8ec9360e
+- MT-044 | run=01a03a6d-17e3-7702-83b5-c9845f869b49 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 45: tests 45-45 of 52
+Experiment: target-discovery-multi-turn-quality-batch-45-597a94d4
+- MT-045 | run=01a03a6e-4717-7cb2-8b31-865236b43857 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 46: tests 46-46 of 52
+Experiment: target-discovery-multi-turn-quality-batch-46-a9ca3883
+- MT-046 | run=01a03a6f-762b-7503-9065-42a1b8de5190 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 47: tests 47-47 of 52
+Experiment: target-discovery-multi-turn-quality-batch-47-b2fb6573
+- MT-047 | run=01a03a73-dd86-7250-8792-41466db47a5a | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 48: tests 48-48 of 52
+Experiment: target-discovery-multi-turn-quality-batch-48-6da0512b
+- MT-048 | run=01a03a75-0ad2-7381-a6ff-214097522b48 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 49: tests 49-49 of 52
+Experiment: target-discovery-multi-turn-quality-batch-49-a4025272
+- MT-049 | run=01a03a76-36a4-7912-8565-034cc2b54c7b | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 50: tests 50-50 of 52
+Experiment: target-discovery-multi-turn-quality-batch-50-ff238ff4
+- MT-050 | run=01a03a77-5d84-70b2-a9a7-580d17b12915 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 51: tests 51-51 of 52
+Experiment: target-discovery-multi-turn-quality-batch-51-7c2087e7
+- MT-051 | run=01a03a79-8012-7b32-9601-86902df3b5cb | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 52: tests 52-52 of 52
+Experiment: target-discovery-multi-turn-quality-batch-52-6382533b
+- MT-052 | run=01a03a7a-d882-7283-85c7-4b9ba042eea6 | response_groundedness=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}")), evidence_validity=ERROR (ChatGoogleGenerativeAIError("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}"))
+
+[multi-turn-quality] batch 1: tests 33-33 of 20
+Experiment: target-discovery-multi-turn-quality-batch-1-2c4c850b
+- MT-033 | run=01a03c8f-a777-7601-a6ef-f4dc481e1296 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 2: tests 34-34 of 20
+Experiment: target-discovery-multi-turn-quality-batch-2-a3a86401
+- MT-034 | run=01a03c92-2e80-7af0-ae22-b7b1ea9b1f2e | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 3: tests 35-35 of 20
+Experiment: target-discovery-multi-turn-quality-batch-3-cb97c231
+- MT-035 | run=01a03c94-33b9-7aa3-afe9-ac62ddce51e2 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 4: tests 36-36 of 20
+Experiment: target-discovery-multi-turn-quality-batch-4-a25ea919
+- MT-036 | run=01a03c94-a345-74d0-ae5b-d7fecb4b6607 | response_groundedness=4, evidence_validity=1
+
+[multi-turn-quality] batch 5: tests 37-37 of 20
+Experiment: target-discovery-multi-turn-quality-batch-5-ca334dcf
+- MT-037 | run=01a03c97-038f-7cc2-88e2-cb5f290e16f2 | response_groundedness=5, evidence_validity=3
+
+[multi-turn-quality] batch 6: tests 38-38 of 20
+Experiment: target-discovery-multi-turn-quality-batch-6-9248f736
+- MT-038 | run=01a03c99-bd42-7d01-91e9-50524154d688 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 7: tests 39-39 of 20
+Experiment: target-discovery-multi-turn-quality-batch-7-90401312
+- MT-039 | run=01a03c9b-4398-7930-93d0-9a72222738e5 | response_groundedness=2, evidence_validity=2
+
+[multi-turn-quality] batch 8: tests 40-40 of 20
+Experiment: target-discovery-multi-turn-quality-batch-8-a64b04cc
+- MT-040 | run=01a03c9d-805b-7c33-9758-38529412121c | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 9: tests 41-41 of 20
+Experiment: target-discovery-multi-turn-quality-batch-9-9cf29ab0
+- MT-041 | run=01a03c9e-88ad-7d62-b1fa-6739a7c07a6d | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 10: tests 42-42 of 20
+Experiment: target-discovery-multi-turn-quality-batch-10-20124322
+- MT-042 | run=01a03c9f-cc64-7ed2-9a65-c0cca8abd51c | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 11: tests 43-43 of 20
+Experiment: target-discovery-multi-turn-quality-batch-11-baa558e2
+- MT-043 | run=01a03ca3-4cc3-7742-8936-15c6a2fbad6d | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 12: tests 44-44 of 20
+Experiment: target-discovery-multi-turn-quality-batch-12-38f9a3fe
+- MT-044 | run=01a03ca5-5d27-78f0-9125-42055939b9e2 | response_groundedness=5, evidence_validity=3
+
+[multi-turn-quality] batch 13: tests 45-45 of 20
+Experiment: target-discovery-multi-turn-quality-batch-13-74e94d66
+- MT-045 | run=01a03ca6-70b7-7d30-968e-dcde9c3af970 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 14: tests 46-46 of 20
+Experiment: target-discovery-multi-turn-quality-batch-14-b421743b
+- MT-046 | run=01a03ca7-7497-73c3-ae34-a1307868d9a3 | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 15: tests 47-47 of 20
+Experiment: target-discovery-multi-turn-quality-batch-15-79d3223a
+- MT-047 | run=01a03caa-c938-7412-ae8a-7af695a0fc6a | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 16: tests 48-48 of 20
+Experiment: target-discovery-multi-turn-quality-batch-16-48bb4520
+- MT-048 | run=01a03cad-9d65-7480-b770-7d86f9881133 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 17: tests 49-49 of 20
+Experiment: target-discovery-multi-turn-quality-batch-17-f0a35746
+- MT-049 | run=01a03cae-4f6e-7450-80c0-8cd45f463d30 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 18: tests 50-50 of 20
+Experiment: target-discovery-multi-turn-quality-batch-18-a6de1a32
+- MT-050 | run=01a03cae-f92a-7e52-812a-b7d5b2593fe8 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 19: tests 51-51 of 20
+Experiment: target-discovery-multi-turn-quality-batch-19-c2e4c654
+- MT-051 | run=01a03cb1-7785-7e20-886f-8f699f8666ba | response_groundedness=5, evidence_validity=1
+
+[multi-turn-quality] batch 20: tests 52-52 of 20
+Experiment: target-discovery-multi-turn-quality-batch-20-fe2edaf6
+- MT-052 | run=01a03cb2-3aff-7c81-8325-5b87b9e40f18 | response_groundedness=5, evidence_validity=2

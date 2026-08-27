@@ -1,0 +1,208 @@
+
+[single-turn-quality] batch 1: tests 1-1 of 52
+Experiment: target-discovery-single-turn-quality-batch-1-ec8bc0ee
+- ST-001 | run=01a03e4e-c4c6-7eb0-be68-48c7d64b6a8b | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 2: tests 2-2 of 52
+Experiment: target-discovery-single-turn-quality-batch-2-49d6e423
+- ST-002 | run=01a03e50-b5b1-7b91-b7b3-3b1a6b2d82d6 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 3: tests 3-3 of 52
+Experiment: target-discovery-single-turn-quality-batch-3-a3064eb5
+- ST-003 | run=01a03e55-c099-77d2-84e2-2aab819c03de | response_groundedness=5, evidence_validity=2
+
+[single-turn-quality] batch 4: tests 4-4 of 52
+Experiment: target-discovery-single-turn-quality-batch-4-f7e31ca2
+- ST-004 | run=01a03e58-fd65-7e83-84c8-2cdb4cee6123 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 5: tests 5-5 of 52
+Experiment: target-discovery-single-turn-quality-batch-5-c926e6f7
+- ST-005 | run=01a03e59-888f-79d2-abe7-29e852b2d991 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 6: tests 6-6 of 52
+Experiment: target-discovery-single-turn-quality-batch-6-e5e58b5a
+- ST-006 | run=01a03e5a-38af-7401-8d05-b944a547d671 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 7: tests 7-7 of 52
+Experiment: target-discovery-single-turn-quality-batch-7-3b188912
+- ST-007 | run=01a03e5b-7dde-7593-832e-8e357feab3d7 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 8: tests 8-8 of 52
+Experiment: target-discovery-single-turn-quality-batch-8-44e62cba
+- ST-008 | run=01a03e5d-2db2-74a2-84e6-aad3ce424829 | response_groundedness=5, evidence_validity=3
+
+[single-turn-quality] batch 9: tests 9-9 of 52
+Experiment: target-discovery-single-turn-quality-batch-9-1c3654c5
+- ST-009 | run=01a03e5e-ef16-7a20-b1dd-26464a2978f7 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 10: tests 10-10 of 52
+Experiment: target-discovery-single-turn-quality-batch-10-0676c13b
+- ST-010 | run=01a03e60-8679-74b0-b0df-de4c448b04f1 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 11: tests 11-11 of 52
+Experiment: target-discovery-single-turn-quality-batch-11-144ce047
+- ST-011 | run=01a03e61-2f89-70b2-8b8b-353274e9139a | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 12: tests 12-12 of 52
+Experiment: target-discovery-single-turn-quality-batch-12-63aeceaa
+- ST-012 | run=01a03e62-1038-77f1-87da-d085190b3ec4 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 13: tests 13-13 of 52
+Experiment: target-discovery-single-turn-quality-batch-13-ed7e7f4d
+- ST-013 | run=01a03e64-f9ab-7411-9fe0-6da369ca18cb | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 14: tests 14-14 of 52
+Experiment: target-discovery-single-turn-quality-batch-14-77e6c1b2
+- ST-014 | run=01a03e6a-f6c1-7f83-b542-72a10cd26647 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 15: tests 15-15 of 52
+Experiment: target-discovery-single-turn-quality-batch-15-4e50451c
+- ST-015 | run=01a03e6b-4612-73d3-82f8-15aa78428219 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 16: tests 16-16 of 52
+Experiment: target-discovery-single-turn-quality-batch-16-b5ca55fe
+- ST-016 | run=01a03e6b-f470-7d42-aecd-03fe4b78d7e4 | response_groundedness=5, evidence_validity=2
+
+[single-turn-quality] batch 17: tests 17-17 of 52
+Experiment: target-discovery-single-turn-quality-batch-17-06583319
+- ST-017 | run=01a03e6c-a801-7862-ad88-7c2de013cc3f | response_groundedness=5, evidence_validity=2
+
+[single-turn-quality] batch 18: tests 18-18 of 52
+Experiment: target-discovery-single-turn-quality-batch-18-f1d9005c
+- ST-018 | run=01a03e6e-09b7-72d2-9b7a-4eaf03167d04 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 19: tests 19-19 of 52
+Experiment: target-discovery-single-turn-quality-batch-19-0fa58077
+- ST-019 | run=01a03e6e-8654-7191-a454-4d472c1bdd6e | response_groundedness=4, evidence_validity=5
+
+[single-turn-quality] batch 20: tests 20-20 of 52
+Experiment: target-discovery-single-turn-quality-batch-20-0a664327
+- ST-020 | run=01a03e6f-579e-70c3-b75a-36fb3594d04d | response_groundedness=3, evidence_validity=4
+
+[single-turn-quality] batch 21: tests 21-21 of 52
+Experiment: target-discovery-single-turn-quality-batch-21-ba22de0d
+- ST-021 | run=01a03e70-3d7a-7411-9309-88358e55a78d | response_groundedness=4, evidence_validity=5
+
+[single-turn-quality] batch 22: tests 22-22 of 52
+Experiment: target-discovery-single-turn-quality-batch-22-1cd4d491
+- ST-022 | run=01a03e71-2814-7531-98ac-f3ca93fc74b2 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 23: tests 23-23 of 52
+Experiment: target-discovery-single-turn-quality-batch-23-5494ffca
+- ST-023 | run=01a03e71-ad71-7c92-aa59-24a51bb4bee1 | response_groundedness=5, evidence_validity=2
+
+[single-turn-quality] batch 24: tests 24-24 of 52
+Experiment: target-discovery-single-turn-quality-batch-24-57e2e95f
+- ST-024 | run=01a03e76-791f-75b0-9732-f6f366a48520 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 25: tests 25-25 of 52
+Experiment: target-discovery-single-turn-quality-batch-25-a9d39bf5
+- ST-025 | run=01a03e77-0b19-7f43-9d9c-0499687b6312 | response_groundedness=1, evidence_validity=5
+
+[single-turn-quality] batch 1: tests 26-26 of 27
+Experiment: target-discovery-single-turn-quality-batch-1-ea783c74
+- ST-026 | run=01a03e8c-a316-74c1-8f1d-347480fe8e47 | response_groundedness=4, evidence_validity=5
+
+[single-turn-quality] batch 2: tests 27-27 of 27
+Experiment: target-discovery-single-turn-quality-batch-2-60c2857d
+- ST-027 | run=01a03eab-670c-76e2-9b12-bd25ca3b0468 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 3: tests 28-28 of 27
+Experiment: target-discovery-single-turn-quality-batch-3-92fb9c01
+- ST-028 | run=01a03eae-b55e-7710-86f7-c802bb44a5fa | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 4: tests 29-29 of 27
+Experiment: target-discovery-single-turn-quality-batch-4-ba685ebf
+- ST-029 | run=01a03eb1-1a2a-7bf2-988f-dac49d4827e9 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 5: tests 30-30 of 27
+Experiment: target-discovery-single-turn-quality-batch-5-195c0142
+- ST-030 | run=01a03eb8-b2f8-72c0-99eb-b8eb528a0bfa | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 6: tests 31-31 of 27
+Experiment: target-discovery-single-turn-quality-batch-6-2be492af
+- ST-031 | run=01a03eba-31d5-7d61-a98c-b280a26f9322 | response_groundedness=5, evidence_validity=4
+
+[single-turn-quality] batch 7: tests 32-32 of 27
+Experiment: target-discovery-single-turn-quality-batch-7-2735623a
+- ST-032 | run=01a03ebc-9044-70e0-832a-f8a4d2ba8945 | response_groundedness=4, evidence_validity=5
+
+[single-turn-quality] batch 8: tests 33-33 of 27
+Experiment: target-discovery-single-turn-quality-batch-8-07a4b155
+- ST-033 | run=01a03ebe-f36a-7d32-994b-9ec3339b2932 | response_groundedness=3, evidence_validity=5
+
+[single-turn-quality] batch 9: tests 34-34 of 27
+Experiment: target-discovery-single-turn-quality-batch-9-749667ca
+- ST-034 | run=01a03ec3-a637-72c2-b944-b94a1b0169d2 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 10: tests 35-35 of 27
+Experiment: target-discovery-single-turn-quality-batch-10-240398e8
+- ST-035 | run=01a03ec5-eb8b-75d0-b151-7617c848bbd7 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 11: tests 36-36 of 27
+Experiment: target-discovery-single-turn-quality-batch-11-9aa86a2b
+- ST-036 | run=01a03ec7-8ab8-7520-a205-6fd3e86af392 | response_groundedness=2, evidence_validity=5
+
+[single-turn-quality] batch 12: tests 37-37 of 27
+Experiment: target-discovery-single-turn-quality-batch-12-8fcec240
+- ST-037 | run=01a03ed2-32fc-7991-8fbb-ef20bddc4186 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 13: tests 38-38 of 27
+Experiment: target-discovery-single-turn-quality-batch-13-923a7854
+- ST-038 | run=01a03edb-1117-7bc2-9890-fe1101fd2514 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 14: tests 39-39 of 27
+Experiment: target-discovery-single-turn-quality-batch-14-6298c36b
+- ST-039 | run=01a03edb-a385-7441-addc-b2b9732727b6 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 15: tests 40-40 of 27
+Experiment: target-discovery-single-turn-quality-batch-15-3dcc94eb
+- ST-040 | run=01a03edc-1773-7450-9afa-acc9d898dc1a | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 16: tests 41-41 of 27
+Experiment: target-discovery-single-turn-quality-batch-16-348b6522
+- ST-041 | run=01a03edd-64a5-7520-b84e-de6b626ba167 | response_groundedness=1, evidence_validity=1
+
+[single-turn-quality] batch 17: tests 42-42 of 27
+Experiment: target-discovery-single-turn-quality-batch-17-f5d97777
+- ST-042 | run=01a03edf-2614-77c3-86ed-20a642e06256 | response_groundedness=1, evidence_validity=1
+
+[single-turn-quality] batch 18: tests 43-43 of 27
+Experiment: target-discovery-single-turn-quality-batch-18-74a2aa17
+- ST-043 | run=01a03ee0-30bf-7ce1-8a95-59ea00af6a1f | response_groundedness=3, evidence_validity=5
+
+[single-turn-quality] batch 19: tests 44-44 of 27
+Experiment: target-discovery-single-turn-quality-batch-19-0f5a5f59
+- ST-044 | run=01a03ee3-e9b7-7080-a8f2-0fa04c68fb6b | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 20: tests 45-45 of 27
+Experiment: target-discovery-single-turn-quality-batch-20-be38b94b
+- ST-045 | run=01a03ee4-5dc1-73c3-8137-8886b0e125b7 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 21: tests 46-46 of 27
+Experiment: target-discovery-single-turn-quality-batch-21-3a86d346
+- ST-046 | run=01a03ee5-c5a5-7f60-b2ad-680accb7e373 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 22: tests 47-47 of 27
+Experiment: target-discovery-single-turn-quality-batch-22-81b42707
+- ST-047 | run=01a03eec-9704-7e32-8633-08b298a24ccb | response_groundedness=3, evidence_validity=2
+
+[single-turn-quality] batch 23: tests 48-48 of 27
+Experiment: target-discovery-single-turn-quality-batch-23-248eb9ee
+- ST-048 | run=01a03eee-c696-73e0-b184-8cd02838071d | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 24: tests 49-49 of 27
+Experiment: target-discovery-single-turn-quality-batch-24-52900868
+- ST-049 | run=01a03eef-6c3e-78f2-90af-885b59637c18 | response_groundedness=5, evidence_validity=2
+
+[single-turn-quality] batch 25: tests 50-50 of 27
+Experiment: target-discovery-single-turn-quality-batch-25-53222ecf
+- ST-050 | run=01a03ef0-ad5e-77c2-9b9d-00cac61abd74 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 26: tests 51-51 of 27
+Experiment: target-discovery-single-turn-quality-batch-26-23c43f4d
+- ST-051 | run=01a03ef1-829e-7772-b49d-297651bec206 | response_groundedness=5, evidence_validity=1
+
+[single-turn-quality] batch 27: tests 52-52 of 27
+Experiment: target-discovery-single-turn-quality-batch-27-7557c26e
+- ST-052 | run=01a03ef4-ac42-7230-a4e1-9f2c51eebf0a | response_groundedness=5, evidence_validity=1

@@ -25,14 +25,24 @@ class Settings:
         self.groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         self.mistral_model: str = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
         self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.gemma_model: str = os.getenv("GEMMA_MODEL", "gemma-4-26b-a4b-it")
         self.claude_model: str = os.getenv("CLAUDE_MODEL", os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"))
         self.ollama_model: str = os.getenv("OLLAMA_MODEL", "gemma3-27b-it.gguf:latest")
         self.ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip()
         self.temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
+        self.gemma_temperature: float = float(os.getenv("GEMMA_TEMPERATURE", os.getenv("LLM_TEMPERATURE", "1")))
+        self.gemma_top_k: int = int(os.getenv("GEMMA_TOP_K", "64"))
+        self.gemma_top_p: float = float(os.getenv("GEMMA_TOP_P", "0.95"))
+        self.gemma_thinking_level: str = os.getenv("GEMMA_THINKING_LEVEL", "high").strip().lower()
+        gemma_max_tokens = os.getenv("GEMMA_MAX_TOKENS", "").strip()
+        self.gemma_max_tokens: int | None = int(gemma_max_tokens) if gemma_max_tokens else None
 
         self.http_timeout_seconds: int = int(os.getenv("HTTP_TIMEOUT_SECONDS", "30"))
         self.http_max_retries: int = int(os.getenv("HTTP_MAX_RETRIES", "3"))
         self.http_backoff_factor: float = float(os.getenv("HTTP_BACKOFF_FACTOR", "0.5"))
+        self.llm_rate_limit_retries: int = int(os.getenv("LLM_RATE_LIMIT_RETRIES", "3"))
+        self.llm_rate_limit_backoff_seconds: float = float(os.getenv("LLM_RATE_LIMIT_BACKOFF_SECONDS", "15"))
+        self.llm_rate_limit_max_sleep_seconds: float = float(os.getenv("LLM_RATE_LIMIT_MAX_SLEEP_SECONDS", "90"))
 
         self.string_required_score: int = int(os.getenv("STRING_REQUIRED_SCORE", "900"))
 

@@ -367,6 +367,39 @@ def list_dataset_examples(dataset_name: str) -> list[Any]:
     return sorted(examples, key=lambda example: str((example.metadata or {}).get("id") or example.id))
 
 
+def example_identifier(example: Any) -> str:
+    metadata = getattr(example, "metadata", None) or {}
+    return str(metadata.get("id") or getattr(example, "id", "")).strip()
+
+
+def select_dataset_examples(
+    examples: list[Any],
+    *,
+    case_id: str | None = None,
+    from_case_id: str | None = None,
+) -> tuple[list[Any], int]:
+    """Return selected examples and their 1-based starting position."""
+
+    selected = list(examples)
+    start_position = 1
+
+    if case_id:
+        wanted = case_id.strip().lower()
+        selected = [example for example in selected if example_identifier(example).lower() == wanted]
+        if not selected:
+            raise ValueError(f"No dataset example found with id {case_id!r}.")
+        return selected, examples.index(selected[0]) + 1
+
+    if from_case_id:
+        wanted = from_case_id.strip().lower()
+        for index, example in enumerate(selected):
+            if example_identifier(example).lower() == wanted:
+                return selected[index:], index + 1
+        raise ValueError(f"No dataset example found with id {from_case_id!r}.")
+
+    return selected, start_position
+
+
 def chunked(items: list[Any], size: int) -> list[list[Any]]:
     if size <= 0:
         return [items]

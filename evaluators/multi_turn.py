@@ -19,6 +19,7 @@ from evaluators.utils import (
     list_dataset_examples,
     load_multi_turn_specs,
     sanitize_agent_output,
+    select_dataset_examples,
 )
 
 
@@ -52,12 +53,19 @@ def run_multi_turn_eval(
     max_concurrency: int = 0,
     batch_size: int = 10,
     results_file: str = str(DEFAULT_RESULTS_FILE),
+    case_id: str | None = None,
+    from_case_id: str | None = None,
 ):
     if seed_dataset:
         ensure_dataset(MULTI_TURN_DATASET, load_multi_turn_specs())
 
+    examples, first_position = select_dataset_examples(
+        list_dataset_examples(MULTI_TURN_DATASET),
+        case_id=case_id,
+        from_case_id=from_case_id,
+    )
+
     if batch_size > 0:
-        examples = list_dataset_examples(MULTI_TURN_DATASET)
         results = []
         total_examples = len(examples)
         for batch_number, batch in enumerate(chunked(examples, batch_size), start=1):
@@ -74,8 +82,8 @@ def run_multi_turn_eval(
                 suite_name="multi-turn",
                 experiment_name=batch_results.experiment_name,
                 batch_number=batch_number,
-                batch_start=((batch_number - 1) * batch_size) + 1,
-                batch_end=min(batch_number * batch_size, total_examples),
+                batch_start=first_position + ((batch_number - 1) * batch_size),
+                batch_end=first_position + ((batch_number - 1) * batch_size) + len(batch) - 1,
                 total_examples=total_examples,
                 rows=rows,
             )
@@ -84,7 +92,7 @@ def run_multi_turn_eval(
 
     return evaluate(
         run_multi_turn_example,
-        data=MULTI_TURN_DATASET,
+        data=examples,
         evaluators=TOOL_EVALUATORS,
         experiment_prefix=experiment_prefix,
         max_concurrency=max_concurrency,

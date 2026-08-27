@@ -4,6 +4,7 @@ from functools import lru_cache
 import json
 import os
 import re
+import time
 from typing import Any
 
 import httpx
@@ -43,10 +44,12 @@ class LLMConnectivityError(RuntimeError):
 def is_gemini_family_provider() -> bool:
     provider = str(SETTINGS.llm_provider or "").strip().lower()
     model_name = str(getattr(SETTINGS, "gemini_model", "") or "").strip().lower()
+    gemma_model_name = str(getattr(SETTINGS, "gemma_model", "") or "").strip().lower()
     ollama_model_name = str(getattr(SETTINGS, "ollama_model", "") or "").strip().lower()
     return (
-        provider in {"gemini", "ollama"}
+        provider in {"gemini", "google", "google_ai_studio", "google-ai-studio", "gemma", "gemma4", "ollama"}
         or "gemini" in model_name
+        or "gemma" in gemma_model_name
         or "gemma" in model_name
         or "gemma" in ollama_model_name
     )
@@ -120,7 +123,7 @@ def _build_provider_specs() -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
 
     for provider in _provider_candidates():
-        if provider == "gemini":
+        if provider in {"gemini", "google"}:
             if ChatGoogleGenerativeAI is None:
                 specs.append(
                     {
@@ -135,6 +138,32 @@ def _build_provider_specs() -> list[dict[str, Any]]:
                     "factory": lambda: ChatGoogleGenerativeAI(
                         model=SETTINGS.gemini_model,
                         temperature=SETTINGS.temperature,
+                        request_timeout=timeout,
+                        retries=0,
+                    ),
+                }
+            )
+            continue
+
+        if provider in {"gemma", "gemma4", "google_ai_studio", "google-ai-studio"}:
+            if ChatGoogleGenerativeAI is None:
+                specs.append(
+                    {
+                        "name": "gemma",
+                        "factory_error": "Gemma/Google AI Studio provider requested but `langchain_google_genai` is not installed.",
+                    }
+                )
+                continue
+            specs.append(
+                {
+                    "name": "gemma",
+                    "factory": lambda: ChatGoogleGenerativeAI(
+                        model=SETTINGS.gemma_model,
+                        temperature=SETTINGS.gemma_temperature,
+                        top_k=SETTINGS.gemma_top_k,
+                        top_p=SETTINGS.gemma_top_p,
+                        max_tokens=SETTINGS.gemma_max_tokens,
+                        thinking_level=SETTINGS.gemma_thinking_level,
                         request_timeout=timeout,
                         retries=0,
                     ),
@@ -260,12 +289,42 @@ def _is_connectivity_error(exc: Exception) -> bool:
     return False
 
 
+def _is_rate_limit_error(exc: Exception) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        message = str(current).lower()
+        if any(token in message for token in ("resource_exhausted", "quota exceeded", "rate limit", "429")):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _retry_delay_seconds(exc: Exception, attempt: int) -> float:
+    text = str(exc)
+    matches = [
+        re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s", text, flags=re.IGNORECASE),
+        re.search(r"retry in\s+(\d+(?:\.\d+)?)s", text, flags=re.IGNORECASE),
+    ]
+    for match in matches:
+        if match:
+            return min(
+                float(match.group(1)) + 1.0,
+                float(getattr(SETTINGS, "llm_rate_limit_max_sleep_seconds", 90) or 90),
+            )
+
+    backoff = float(getattr(SETTINGS, "llm_rate_limit_backoff_seconds", 15) or 15)
+    return min(
+        backoff * max(1, attempt),
+        float(getattr(SETTINGS, "llm_rate_limit_max_sleep_seconds", 90) or 90),
+    )
+
+
 def _format_llm_failure(errors: list[str], connectivity_failures: int) -> str:
     provider_hint = (
-        "Set `LLM_PROVIDER` to `gemini`, `ollama`, `mistral`, `groq`, or `claude`. "
+        "Set `LLM_PROVIDER` to `gemini`, `gemma`, `ollama`, `mistral`, `groq`, or `claude`. "
         "For hosted providers, provide the matching API key (`GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, or `ANTHROPIC_API_KEY`). "
         "For Ollama, set `OLLAMA_MODEL` and `OLLAMA_BASE_URL`. "
-        "Optionally set `GEMINI_MODEL`, `MISTRAL_MODEL`, `GROQ_MODEL`, or `CLAUDE_MODEL`."
+        "Optionally set `GEMINI_MODEL`, `GEMMA_MODEL`, `MISTRAL_MODEL`, `GROQ_MODEL`, or `CLAUDE_MODEL`."
     )
     details = " | ".join(errors) if errors else "No provider could be initialized."
     if connectivity_failures:
@@ -310,18 +369,24 @@ class ResilientLLM:
     def invoke(self, *args: Any, **kwargs: Any):
         errors: list[str] = []
         connectivity_failures = 0
+        rate_limit_retries = max(0, int(getattr(SETTINGS, "llm_rate_limit_retries", 3) or 0))
 
         for spec in self._provider_specs:
             name = str(spec["name"])
-            try:
-                client = self._get_provider_client(spec)
-                runnable = client.bind_tools(self._bound_tools) if self._bound_tools is not None else client
-                return runnable.invoke(*args, **kwargs)
-            except Exception as exc:
-                errors.append(f"{name}: {exc}")
-                if _is_connectivity_error(exc):
-                    connectivity_failures += 1
-                continue
+            for attempt in range(rate_limit_retries + 1):
+                try:
+                    client = self._get_provider_client(spec)
+                    runnable = client.bind_tools(self._bound_tools) if self._bound_tools is not None else client
+                    return runnable.invoke(*args, **kwargs)
+                except Exception as exc:
+                    if _is_rate_limit_error(exc) and attempt < rate_limit_retries:
+                        delay = _retry_delay_seconds(exc, attempt + 1)
+                        time.sleep(delay)
+                        continue
+                    errors.append(f"{name}: {exc}")
+                    if _is_connectivity_error(exc):
+                        connectivity_failures += 1
+                    break
 
         message = _format_llm_failure(errors, connectivity_failures)
         if connectivity_failures:

@@ -35,11 +35,44 @@ Run evaluations:
 .\.venv\Scripts\python.exe -m evaluators.run_evals all
 ```
 
+Use Gemma 4 26B through Google AI Studio for the agent:
+
+```powershell
+$env:GOOGLE_API_KEY = "..."
+$env:LLM_PROVIDER = "gemma"
+$env:GEMMA_MODEL = "gemma-4-26b-a4b-it"
+$env:GEMMA_TEMPERATURE = "1"
+$env:GEMMA_TOP_K = "64"
+$env:GEMMA_TOP_P = "0.95"
+$env:GEMMA_THINKING_LEVEL = "high"
+$env:LLM_RATE_LIMIT_RETRIES = "6"
+$env:LLM_RATE_LIMIT_BACKOFF_SECONDS = "20"
+```
+
+The screenshot's `context length` is the model capacity. Set
+`GEMMA_MAX_TOKENS` only when you want to cap generated output length. For
+Ollama's local `gemma4:26b` tag, use `LLM_PROVIDER=ollama` and set
+`OLLAMA_MODEL=gemma4:26b` instead.
+
+Gemma 4 26B on Google AI Studio can have a low per-minute input-token quota.
+For long eval runs, keep concurrency low and batch small:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.run_evals single --max-concurrency 0 --batch-size 1
+```
+
 By default, the runner evaluates in batches of 10 and appends a checkpoint to
 `evaluators/langsmith_results.txt` after each batch. To change this:
 
 ```powershell
 .\.venv\Scripts\python.exe -m evaluators.run_evals single --batch-size 5 --results-file evaluators\my_results.txt
+```
+
+Run one test case or resume from a specific case:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.run_evals single --case ST-007
+.\.venv\Scripts\python.exe -m evaluators.run_evals multi --from-case MT-012
 ```
 
 Use `--no-seed` when the LangSmith datasets already exist and you do not want
@@ -53,6 +86,13 @@ $env:HALLUCINATION_JUDGE_MODEL = "gemini-3.5-flash"
 .\.venv\Scripts\python.exe -m evaluators.run_quality_evals single
 .\.venv\Scripts\python.exe -m evaluators.run_quality_evals multi
 .\.venv\Scripts\python.exe -m evaluators.run_quality_evals all
+```
+
+Quality runs support the same case filters:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.run_quality_evals single --case ST-007
+.\.venv\Scripts\python.exe -m evaluators.run_quality_evals all --from-case MT-012
 ```
 
 This uses `HALLUCINATION_JUDGE_MODEL`, defaulting to `gemini-3.5-flash`, for

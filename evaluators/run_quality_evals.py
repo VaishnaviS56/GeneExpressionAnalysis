@@ -22,6 +22,7 @@ from evaluators.utils import (
     list_dataset_examples,
     load_multi_turn_specs,
     load_single_turn_specs,
+    select_dataset_examples,
 )
 
 
@@ -43,12 +44,19 @@ def run_quality_suite(
     batch_size: int,
     results_file: str,
     add_to_human_review: bool,
+    case_id: str | None = None,
+    from_case_id: str | None = None,
 ):
     if seed_dataset:
         ensure_dataset(dataset_name, seed_specs)
 
+    examples, first_position = select_dataset_examples(
+        list_dataset_examples(dataset_name),
+        case_id=case_id,
+        from_case_id=from_case_id,
+    )
+
     if batch_size > 0:
-        examples = list_dataset_examples(dataset_name)
         results = []
         total_examples = len(examples)
         for batch_number, batch in enumerate(chunked(examples, batch_size), start=1):
@@ -65,8 +73,8 @@ def run_quality_suite(
                 suite_name=f"{suite_name}-quality",
                 experiment_name=batch_results.experiment_name,
                 batch_number=batch_number,
-                batch_start=((batch_number - 1) * batch_size) + 1,
-                batch_end=min(batch_number * batch_size, total_examples),
+                batch_start=first_position + ((batch_number - 1) * batch_size),
+                batch_end=first_position + ((batch_number - 1) * batch_size) + len(batch) - 1,
                 total_examples=total_examples,
                 rows=rows,
             )
@@ -77,7 +85,7 @@ def run_quality_suite(
 
     results = evaluate(
         target,
-        data=dataset_name,
+        data=examples,
         evaluators=QUALITY_EVALUATORS,
         experiment_prefix=f"{experiment_prefix}-quality",
         max_concurrency=max_concurrency,
@@ -96,6 +104,10 @@ def run_quality_suite(
     if add_to_human_review:
         add_experiment_to_queue(results.experiment_name)
     return results
+
+
+def _case_prefix(value: str | None) -> str:
+    return str(value or "").strip().split("-", 1)[0].upper()
 
 
 def main() -> None:
@@ -134,11 +146,25 @@ def main() -> None:
         default=str(DEFAULT_RESULTS_FILE.with_name("quality_results.txt")),
         help="Text file where quality batch results are appended.",
     )
+    parser.add_argument(
+        "--case",
+        help="Run only one dataset example by id, such as ST-007 or MT-003.",
+    )
+    parser.add_argument(
+        "--from-case",
+        help="Run dataset examples from this id onward, such as ST-007 or MT-003.",
+    )
     args = parser.parse_args()
 
-    add_to_human_review = not args.no_human_review
+    if args.case and args.from_case:
+        parser.error("Use either --case or --from-case, not both.")
 
-    if args.suite in {"single", "all"}:
+    add_to_human_review = not args.no_human_review
+    requested_prefix = _case_prefix(args.case or args.from_case)
+    run_single = args.suite in {"single", "all"} and requested_prefix != "MT"
+    run_multi = args.suite in {"multi", "all"} and requested_prefix != "ST"
+
+    if run_single:
         single = run_quality_suite(
             suite_name="single-turn",
             target=run_single_turn_example,
@@ -150,13 +176,15 @@ def main() -> None:
             batch_size=args.batch_size,
             results_file=args.results_file,
             add_to_human_review=add_to_human_review,
+            case_id=args.case,
+            from_case_id=args.from_case,
         )
         if isinstance(single, list):
             print(f"Single-turn quality experiments: {', '.join(result.experiment_name for result in single)}")
         else:
             print(f"Single-turn quality experiment: {single.experiment_name}")
 
-    if args.suite in {"multi", "all"}:
+    if run_multi:
         multi = run_quality_suite(
             suite_name="multi-turn",
             target=run_multi_turn_example,
@@ -168,6 +196,8 @@ def main() -> None:
             batch_size=args.batch_size,
             results_file=args.results_file,
             add_to_human_review=add_to_human_review,
+            case_id=args.case,
+            from_case_id=args.from_case,
         )
         if isinstance(multi, list):
             print(f"Multi-turn quality experiments: {', '.join(result.experiment_name for result in multi)}")
