@@ -218,6 +218,9 @@ def _retrieved_literature_answer(
         user_query=query,
         genes=genes,
         first_pass_only=first_pass_only,
+        source_query_limit=2 if first_pass_only else None,
+        source_timeout_seconds=8 if first_pass_only else None,
+        source_use_retries=not first_pass_only,
     )
     if not isinstance(result, dict):
         return None
@@ -456,6 +459,11 @@ def run_publication_research_assistant(
                 top_n=top_n,
                 first_pass_only=True,
             )
+            print(
+                "[research_literature] retrieved literature branch complete "
+                f"status={retrieved_result.get('status') if isinstance(retrieved_result, dict) else 'not_used'}",
+                flush=True,
+            )
         except Exception as exc:
             print(f"[research_literature] retrieved literature branch failed: {sanitize_exception_message(exc)}")
             retrieved_result = None
@@ -482,7 +490,9 @@ def run_publication_research_assistant(
     print("[research_literature] LLM prompt:")
     print(prompt)
 
+    print("[research_literature] starting LLM synthesis", flush=True)
     response = get_llm().invoke([("user", prompt)])
+    print("[research_literature] LLM synthesis complete", flush=True)
     raw_answer = _message_content_text(getattr(response, "content", ""))
     answer, references, key_points, candidate_gene_evidence, response_format = _parse_literature_response(raw_answer, normalized_genes)
     if not answer:

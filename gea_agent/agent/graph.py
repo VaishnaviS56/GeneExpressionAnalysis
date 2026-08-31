@@ -4243,6 +4243,9 @@ def _run_fetch_openalex(state: AgentState, args: dict[str, Any]) -> dict[str, An
         top_n=top_n,
         user_query=query or disease_name,
         genes=literature_genes,
+        source_query_limit=5,
+        source_timeout_seconds=10,
+        source_use_retries=False,
     )
     genes = openalex_result.get("genes", [])
     return {

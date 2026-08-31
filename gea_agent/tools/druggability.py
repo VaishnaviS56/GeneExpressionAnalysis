@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import requests
 import time
 from html import escape
 from pathlib import Path
@@ -10,7 +11,6 @@ from typing import Any
 from urllib.parse import urljoin
 
 from gea_agent.config import SETTINGS
-from gea_agent.tools.http_utils import get_retrying_session
 from gea_agent.tools.result_utils import sanitize_exception_message, tool_error_result
 
 
@@ -22,6 +22,15 @@ ALPHAFOLD_API_URL = "https://alphafold.ebi.ac.uk/api/prediction/{uniprot_id}"
 PROTEINS_PLUS_BASE_URL = "https://proteins.plus"
 PROTEINS_PLUS_UPLOAD_URL = f"{PROTEINS_PLUS_BASE_URL}/api/pdb_files_rest"
 DOGSITE_URL = f"{PROTEINS_PLUS_BASE_URL}/api/dogsite_rest"
+
+
+def _request_timeout(timeout_seconds: int | float | None = None) -> tuple[float, float]:
+    read_timeout = float(timeout_seconds or SETTINGS.http_timeout_seconds)
+    return (min(5.0, read_timeout), max(1.0, read_timeout))
+
+
+def _log_stage(message: str) -> None:
+    print(f"[druggability] {message}", flush=True)
 
 
 def _safe_text(value: Any) -> str:
@@ -47,7 +56,7 @@ def _pdb_visualization_dir(label: str, output_dir: str | None = None) -> Path:
 
 
 def _download_text(url: str, path: Path) -> str:
-    response = get_retrying_session().get(url, timeout=SETTINGS.http_timeout_seconds)
+    response = requests.get(url, headers={"User-Agent": "GEA-Agent/1.0"}, timeout=_request_timeout())
     response.raise_for_status()
     text = response.text
     path.write_text(text, encoding="utf-8", errors="replace")
@@ -55,16 +64,18 @@ def _download_text(url: str, path: Path) -> str:
 
 
 def _resolve_uniprot_accession(gene: str, organism_id: int = 9606) -> dict[str, Any]:
+    _log_stage(f"resolving UniProt accession for {gene}")
     params = {
         "query": f'(gene_exact:{gene}) AND (organism_id:{organism_id})',
         "format": "json",
         "fields": "accession,id,gene_names,protein_name,organism_name",
         "size": "5",
     }
-    response = get_retrying_session().get(
+    response = requests.get(
         UNIPROT_SEARCH_URL,
         params=params,
-        timeout=SETTINGS.http_timeout_seconds,
+        headers={"User-Agent": "GEA-Agent/1.0"},
+        timeout=_request_timeout(),
     )
     response.raise_for_status()
     results = response.json().get("results") or []
@@ -83,6 +94,7 @@ def _resolve_uniprot_accession(gene: str, organism_id: int = 9606) -> dict[str, 
 
 
 def _find_rcsb_pdb_for_uniprot(uniprot_id: str) -> dict[str, Any]:
+    _log_stage(f"searching RCSB PDB for UniProt {uniprot_id}")
     query = {
         "query": {
             "type": "terminal",
@@ -100,10 +112,11 @@ def _find_rcsb_pdb_for_uniprot(uniprot_id: str) -> dict[str, Any]:
         },
         "return_type": "entry",
     }
-    response = get_retrying_session().post(
+    response = requests.post(
         RCSB_SEARCH_URL,
         json=query,
-        timeout=SETTINGS.http_timeout_seconds,
+        headers={"User-Agent": "GEA-Agent/1.0"},
+        timeout=_request_timeout(),
     )
     if response.status_code == 204:
         return {"status": "not_found", "pdb_id": ""}
@@ -121,6 +134,7 @@ def _get_structure(gene: str, uniprot_id: str, out_dir: Path) -> dict[str, Any]:
     pdb_id = _safe_text(rcsb_result.get("pdb_id")).upper()
     if pdb_id:
         path = out_dir / f"{gene}_{pdb_id}.pdb"
+        _log_stage(f"downloading RCSB structure {pdb_id}")
         _download_text(RCSB_PDB_DOWNLOAD_URL.format(pdb_id=pdb_id), path)
         return {
             "status": "ok",
@@ -142,9 +156,11 @@ def _get_structure(gene: str, uniprot_id: str, out_dir: Path) -> dict[str, Any]:
             "alphafold": alphafold,
             "message": f"No RCSB PDB or AlphaFold PDB model found for UniProt {uniprot_id}.",
         }
-    response = get_retrying_session().get(
+    _log_stage(f"downloading AlphaFold structure for UniProt {uniprot_id}")
+    response = requests.get(
         alphafold_url,
-        timeout=SETTINGS.http_timeout_seconds,
+        headers={"User-Agent": "GEA-Agent/1.0"},
+        timeout=_request_timeout(),
     )
     if response.status_code == 404:
         return {
@@ -169,9 +185,11 @@ def _get_structure(gene: str, uniprot_id: str, out_dir: Path) -> dict[str, Any]:
 
 def _find_alphafold_pdb_url(uniprot_id: str) -> dict[str, Any]:
     try:
-        response = get_retrying_session().get(
+        _log_stage(f"checking AlphaFold API for UniProt {uniprot_id}")
+        response = requests.get(
             ALPHAFOLD_API_URL.format(uniprot_id=uniprot_id),
-            timeout=SETTINGS.http_timeout_seconds,
+            headers={"User-Agent": "GEA-Agent/1.0"},
+            timeout=_request_timeout(),
         )
         if response.status_code < 400:
             payload = response.json()
@@ -205,7 +223,7 @@ def _find_alphafold_pdb_url(uniprot_id: str) -> dict[str, Any]:
     for version in range(6, 0, -1):
         url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_id}-F1-model_v{version}.pdb"
         try:
-            response = get_retrying_session().head(url, timeout=SETTINGS.http_timeout_seconds)
+            response = requests.head(url, headers={"User-Agent": "GEA-Agent/1.0"}, timeout=_request_timeout())
         except Exception:
             continue
         if response.status_code == 200:
@@ -272,12 +290,13 @@ def _extract_location_id(payload: dict[str, Any]) -> str:
 
 
 def _upload_custom_pdb(pdb_path: Path) -> dict[str, Any]:
+    _log_stage(f"uploading PDB to ProteinsPlus: {pdb_path.name}")
     with pdb_path.open("rb") as handle:
-        response = get_retrying_session().post(
+        response = requests.post(
             PROTEINS_PLUS_UPLOAD_URL,
             files={"pdb_file[pathvar]": (pdb_path.name, handle, "chemical/x-pdb")},
-            headers={"Accept": "application/json"},
-            timeout=max(SETTINGS.http_timeout_seconds, 60),
+            headers={"Accept": "application/json", "User-Agent": "GEA-Agent/1.0"},
+            timeout=_request_timeout(max(SETTINGS.http_timeout_seconds, 60)),
         )
     try:
         payload = response.json()
@@ -301,7 +320,8 @@ def _upload_custom_pdb(pdb_path: Path) -> dict[str, Any]:
 
 
 def _submit_dogsite(pdb_code: str, *, chain: str = "", ligand: str = "") -> dict[str, Any]:
-    response = get_retrying_session().post(
+    _log_stage(f"submitting DoGSite job for PDB code {pdb_code}")
+    response = requests.post(
         DOGSITE_URL,
         json={
             "dogsite": {
@@ -312,8 +332,8 @@ def _submit_dogsite(pdb_code: str, *, chain: str = "", ligand: str = "") -> dict
                 "chain": chain or "",
             }
         },
-        headers={"Accept": "application/json", "Content-Type": "application/json"},
-        timeout=SETTINGS.http_timeout_seconds,
+        headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "GEA-Agent/1.0"},
+        timeout=_request_timeout(),
     )
     try:
         payload = response.json()
@@ -342,11 +362,14 @@ def _poll_dogsite(job_id: str, *, timeout_seconds: int, poll_interval_seconds: i
     deadline = time.time() + max(1, timeout_seconds)
     url = f"{DOGSITE_URL}/{job_id}"
     last_payload: dict[str, Any] = {}
+    poll_count = 0
     while time.time() < deadline:
-        response = get_retrying_session().get(
+        poll_count += 1
+        _log_stage(f"polling DoGSite job {job_id} attempt {poll_count}")
+        response = requests.get(
             url,
-            headers={"Accept": "application/json"},
-            timeout=SETTINGS.http_timeout_seconds,
+            headers={"Accept": "application/json", "User-Agent": "GEA-Agent/1.0"},
+            timeout=_request_timeout(min(SETTINGS.http_timeout_seconds, 10)),
         )
         try:
             payload = response.json()
@@ -378,7 +401,8 @@ def _download_result_file(value: Any, out_dir: Path, filename: str) -> str:
         return ""
     if text.startswith(("http://", "https://", "/")):
         url = urljoin(PROTEINS_PLUS_BASE_URL, text)
-        response = get_retrying_session().get(url, timeout=SETTINGS.http_timeout_seconds)
+        _log_stage(f"downloading DoGSite result file {filename}")
+        response = requests.get(url, headers={"User-Agent": "GEA-Agent/1.0"}, timeout=_request_timeout())
         response.raise_for_status()
         path = out_dir / filename
         path.write_bytes(response.content)

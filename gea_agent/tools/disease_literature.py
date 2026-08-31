@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import requests
 from html import unescape
 from typing import Any
 from xml.etree import ElementTree
@@ -1000,13 +1001,26 @@ def _summarize_literature_answer(
         return summary
 
 
-def _search_openalex(query: str, *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _source_request_timeout(timeout_seconds: int | float | None = None) -> tuple[float, float]:
+    read_timeout = float(timeout_seconds or SETTINGS.http_timeout_seconds)
+    return (min(5.0, read_timeout), max(1.0, read_timeout))
+
+
+def _search_openalex(
+    query: str,
+    *,
+    top_n: int,
+    timeout_seconds: int | float | None = None,
+    use_retries: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     params = {"search": query, "per-page": top_n}
     try:
-        response = get_retrying_session().get(
+        client = get_retrying_session() if use_retries else requests
+        response = client.get(
             "https://api.openalex.org/works",
             params=params,
-            timeout=SETTINGS.http_timeout_seconds,
+            headers={"User-Agent": "GEA-Agent/1.0"} if not use_retries else None,
+            timeout=_source_request_timeout(timeout_seconds),
         )
         response.raise_for_status()
         payload = response.json()
@@ -1053,29 +1067,50 @@ def _print_retrieval_progress(source: str, current: int, total: int, *, found: i
     print(f"[literature retrieval] {source:14} [{bar}] {current}/{total}{detail}", flush=True)
 
 
-def _search_openalex_many(queries: list[str], *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _search_openalex_many(
+    queries: list[str],
+    *,
+    top_n: int,
+    query_limit: int | None = None,
+    timeout_seconds: int | float | None = None,
+    use_retries: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     papers: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
-    selected_queries = queries[:6]
+    selected_queries = queries[: max(0, int(query_limit))] if query_limit is not None else queries[:6]
     total = len(selected_queries)
     _print_retrieval_progress("OpenAlex", 0, total, found=0)
     for index, query in enumerate(selected_queries, start=1):
         _print_retrieval_progress("OpenAlex", index - 1, total, found=len(papers), query=query)
-        rows, status = _search_openalex(query, top_n=top_n)
+        print(f"[literature retrieval] OpenAlex request {index}/{total} start", flush=True)
+        rows, status = _search_openalex(
+            query,
+            top_n=top_n,
+            timeout_seconds=timeout_seconds,
+            use_retries=use_retries,
+        )
         papers.extend(rows)
         attempts.append(status)
+        print(
+            f"[literature retrieval] OpenAlex request {index}/{total} done status={status.get('status')} count={len(rows)}",
+            flush=True,
+        )
         _print_retrieval_progress("OpenAlex", index, total, found=len(papers), query=query)
     return papers, {"status": "ok" if papers else "no_results", "queries": attempts, "count": len(papers)}
 
 
-def _fetch_pubmed_abstracts(pmids: list[str]) -> dict[str, str]:
+def _fetch_pubmed_abstracts(
+    pmids: list[str],
+    *,
+    timeout_seconds: int | float | None = None,
+) -> dict[str, str]:
     if not pmids:
         return {}
     try:
         response = get_retrying_session().get(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
             params={"db": "pubmed", "id": ",".join(pmids), "retmode": "xml"},
-            timeout=SETTINGS.http_timeout_seconds,
+            timeout=_source_request_timeout(timeout_seconds),
         )
         response.raise_for_status()
         root = ElementTree.fromstring(response.text)
@@ -1098,12 +1133,17 @@ def _fetch_pubmed_abstracts(pmids: list[str]) -> dict[str, str]:
     return abstracts
 
 
-def _search_pubmed(query: str, *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _search_pubmed(
+    query: str,
+    *,
+    top_n: int,
+    timeout_seconds: int | float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         search_response = get_retrying_session().get(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
             params={"db": "pubmed", "retmode": "json", "sort": "relevance", "retmax": top_n, "term": query},
-            timeout=SETTINGS.http_timeout_seconds,
+            timeout=_source_request_timeout(timeout_seconds),
         )
         search_response.raise_for_status()
         ids = (search_response.json().get("esearchresult") or {}).get("idlist") or []
@@ -1118,14 +1158,14 @@ def _search_pubmed(query: str, *, top_n: int) -> tuple[list[dict[str, Any]], dic
         summary_response = get_retrying_session().get(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
             params={"db": "pubmed", "retmode": "json", "id": ",".join(pmids)},
-            timeout=SETTINGS.http_timeout_seconds,
+            timeout=_source_request_timeout(timeout_seconds),
         )
         summary_response.raise_for_status()
         summary_payload = summary_response.json().get("result") or {}
     except Exception as exc:
         return [], {"status": "request_failed", "message": str(exc)}
 
-    abstracts = _fetch_pubmed_abstracts(pmids)
+    abstracts = _fetch_pubmed_abstracts(pmids, timeout_seconds=timeout_seconds)
     papers: list[dict[str, Any]] = []
     for pmid in pmids:
         row = summary_payload.get(pmid)
@@ -1153,15 +1193,21 @@ def _search_pubmed(query: str, *, top_n: int) -> tuple[list[dict[str, Any]], dic
     return papers, {"status": "ok", "query": query, "count": len(papers)}
 
 
-def _search_pubmed_many(queries: list[str], *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _search_pubmed_many(
+    queries: list[str],
+    *,
+    top_n: int,
+    query_limit: int | None = None,
+    timeout_seconds: int | float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     papers: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
-    selected_queries = queries[:10]
+    selected_queries = queries[: max(0, int(query_limit))] if query_limit is not None else queries[:10]
     total = len(selected_queries)
     _print_retrieval_progress("PubMed", 0, total, found=0)
     for index, query in enumerate(selected_queries, start=1):
         _print_retrieval_progress("PubMed", index - 1, total, found=len(papers), query=query)
-        rows, status = _search_pubmed(query, top_n=top_n)
+        rows, status = _search_pubmed(query, top_n=top_n, timeout_seconds=timeout_seconds)
         papers.extend(rows)
         attempts.append(status)
         _print_retrieval_progress("PubMed", index, total, found=len(papers), query=query)
@@ -1170,7 +1216,12 @@ def _search_pubmed_many(queries: list[str], *, top_n: int) -> tuple[list[dict[st
     return papers, {"status": "ok" if papers else "no_results", "queries": attempts, "count": len(papers)}
 
 
-def _search_google_scholar(query: str, *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _search_google_scholar(
+    query: str,
+    *,
+    top_n: int,
+    timeout_seconds: int | float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     params = {"hl": "en", "q": query, "num": max(1, min(int(top_n), 20))}
     try:
         response = get_retrying_session().get(
@@ -1183,7 +1234,7 @@ def _search_google_scholar(query: str, *, top_n: int) -> tuple[list[dict[str, An
                     "Chrome/126.0.0.0 Safari/537.36"
                 )
             },
-            timeout=SETTINGS.http_timeout_seconds,
+            timeout=_source_request_timeout(timeout_seconds),
         )
         response.raise_for_status()
         html = response.text
@@ -1219,15 +1270,21 @@ def _search_google_scholar(query: str, *, top_n: int) -> tuple[list[dict[str, An
     return papers, {"status": "ok", "query": query, "count": len(papers)}
 
 
-def _search_google_scholar_many(queries: list[str], *, top_n: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _search_google_scholar_many(
+    queries: list[str],
+    *,
+    top_n: int,
+    query_limit: int | None = None,
+    timeout_seconds: int | float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     papers: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
-    selected_queries = queries[:5]
+    selected_queries = queries[: max(0, int(query_limit))] if query_limit is not None else queries[:5]
     total = len(selected_queries)
     _print_retrieval_progress("GoogleScholar", 0, total, found=0)
     for index, query in enumerate(selected_queries, start=1):
         _print_retrieval_progress("GoogleScholar", index - 1, total, found=len(papers), query=query)
-        rows, status = _search_google_scholar(query, top_n=top_n)
+        rows, status = _search_google_scholar(query, top_n=top_n, timeout_seconds=timeout_seconds)
         papers.extend(rows)
         attempts.append(status)
         _print_retrieval_progress("GoogleScholar", index, total, found=len(papers), query=query)
@@ -1243,6 +1300,9 @@ def fetch_openalex_papers_and_genes(
     user_query: str = "",
     genes: list[str] | None = None,
     first_pass_only: bool = False,
+    source_query_limit: int | None = None,
+    source_timeout_seconds: int | float | None = None,
+    source_use_retries: bool = True,
 ) -> dict[str, Any]:
     disease = _clean_whitespace(disease)
     user_query = _clean_whitespace(user_query)
@@ -1264,9 +1324,25 @@ def fetch_openalex_papers_and_genes(
     per_source = max(5, min(int(top_n or 20), 20))
 
     print("[literature retrieval] starting external source searches", flush=True)
-    openalex_papers, openalex_status = _search_openalex_many(queries["plain"], top_n=per_source)
-    pubmed_papers, pubmed_status = _search_pubmed_many(queries["pubmed"], top_n=per_source)
-    scholar_papers, scholar_status = _search_google_scholar_many(queries["scholar"], top_n=max(5, min(per_source, 10)))
+    openalex_papers, openalex_status = _search_openalex_many(
+        queries["plain"],
+        top_n=per_source,
+        query_limit=source_query_limit,
+        timeout_seconds=source_timeout_seconds,
+        use_retries=source_use_retries,
+    )
+    pubmed_papers, pubmed_status = _search_pubmed_many(
+        queries["pubmed"],
+        top_n=per_source,
+        query_limit=source_query_limit,
+        timeout_seconds=source_timeout_seconds,
+    )
+    scholar_papers, scholar_status = _search_google_scholar_many(
+        queries["scholar"],
+        top_n=max(5, min(per_source, 10)),
+        query_limit=source_query_limit,
+        timeout_seconds=source_timeout_seconds,
+    )
     print(
         "[literature retrieval] external searches complete "
         f"openalex={len(openalex_papers)} pubmed={len(pubmed_papers)} google_scholar={len(scholar_papers)}",
