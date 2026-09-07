@@ -9,6 +9,7 @@ string_full_graph.pkl
 *.zip
 *.tsv
 *.xlsx
+*.jsonl
 .pytest_cache/
 .mypy_cache/
 node_modules/

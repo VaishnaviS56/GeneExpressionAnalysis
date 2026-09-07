@@ -47,9 +47,9 @@ Experiment: target-discovery-single-turn-quality-batch-9-76862180
 Experiment: target-discovery-single-turn-quality-batch-10-0ada74eb
 - ST-012 | run=01a03e02-66bb-73a1-9aa0-c65990796fc4 | response_groundedness=4, evidence_validity=2
 
-[single-turn-quality] batch 11: tests 13-13 of 50
-Experiment: target-discovery-single-turn-quality-batch-11-95916626
-- ST-013 | run=01a03e03-d526-74e3-b4b8-a27e291f9365 | response_groundedness=5, evidence_validity=1
+[single-turn-quality] batch 1: tests 1-1 of 2
+Experiment: target-discovery-single-turn-quality-batch-1-e6a89a77
+- ST-013 | run=01a070c1-000b-7d60-ad85-b7d9927cab28 | response_groundedness=5, evidence_validity=5
 
 [single-turn-quality] batch 12: tests 14-14 of 50
 Experiment: target-discovery-single-turn-quality-batch-12-39df9b7e
@@ -203,6 +203,6 @@ Experiment: target-discovery-single-turn-quality-batch-18-883fdfb2
 Experiment: target-discovery-single-turn-quality-batch-19-8b7b35c4
 - ST-051 | run=01a03e45-c22d-7c92-9043-0b28a1614dbf | response_groundedness=5, evidence_validity=1
 
-[single-turn-quality] batch 20: tests 52-52 of 20
-Experiment: target-discovery-single-turn-quality-batch-20-aa27c6c5
-- ST-052 | run=01a03e47-fc9b-7010-9d9d-c751437cd0bb | response_groundedness=5, evidence_validity=1
+[single-turn-quality] batch 2: tests 2-2 of 2
+Experiment: target-discovery-single-turn-quality-batch-2-f48fa9d1
+- ST-052 | run=01a070c4-4fa3-70c0-ac95-bbed7776bc76 | response_groundedness=1, evidence_validity=2

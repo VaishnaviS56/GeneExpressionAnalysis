@@ -272,7 +272,7 @@ def _parse_blocks(path: Path) -> list[tuple[str, list[str], str]]:
 
 
 def load_single_turn_specs(path: Path | None = None) -> list[dict[str, Any]]:
-    path = path or Path(__file__).with_name("singleQs.txt")
+    path = path or Path(__file__).with_name("degSQs.txt")
     specs: list[dict[str, Any]] = []
     for example_id, user_messages, raw_tools in _parse_blocks(path):
         if not user_messages:
@@ -294,7 +294,7 @@ def load_single_turn_specs(path: Path | None = None) -> list[dict[str, Any]]:
 
 
 def load_multi_turn_specs(path: Path | None = None) -> list[dict[str, Any]]:
-    path = path or Path(__file__).with_name("MultiTurnQs.txt")
+    path = path or Path(__file__).with_name("degMQs.txt")
     specs: list[dict[str, Any]] = []
     for example_id, user_messages, raw_tools in _parse_blocks(path):
         if not user_messages:

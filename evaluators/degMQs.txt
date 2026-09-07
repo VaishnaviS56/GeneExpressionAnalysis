@@ -1,0 +1,48 @@
+MT-013
+User: Run DEG.
+User: SRP043162.
+User: Control=Baseline Test=Vitamin-D.
+User: Perform enrichment using all deg genes.
+Expected Tools: ["srp_metadata","deg_analysis", "pathway"]
+
+MT-016
+User: Analyze SRP043162 for DEGs using control as "Baseline" and test as "Vitamin-D"
+User: what anatomical regions are the top 50 upregulated genes associated with
+Expected Tools: ["deg_analysis", "memory_lookup", "primekg_query"]
+
+MT-018
+User: Analyze SRP043162 using control as "Baseline" and test as "Vitamin-D".
+User: Pathway enrichment using top 50 upregulated genes.
+Expected Tools: ["deg_analysis", "pathway"]
+
+MT-019
+User: Run DEG.
+User: Compare control as "Baseline" and test as "Vitamin-D" in SRP043162.
+User: Run Reactome enrichment on downregulated genes.
+Expected Tools: ["deg_analysis", "pathway"]
+
+MT-025
+User: Analyze SRP043162 using control as "Baseline" and test as "Vitamin-D"
+User: Run pathway enrichment on all genes.
+User: Use upregulated DEG genes for gene prioritization using RWR.
+Expected Tools: ["deg_analysis", "pathway", "rwr_analysis"]
+
+MT-028
+User: Analyze SRP043162 using control as "Baseline" and test as "Vitamin-D".
+User: Enrich upregulated genes.
+User: Use those genes in RWR.
+Expected Tools: ["deg_analysis", "pathway", "rwr_analysis"]
+
+MT-042
+User: Analyze SRP043162 for DEGs using control as "Baseline" and test as "Vitamin-D"
+User: Find L1000 compounds reversing my latest DEG signature.
+User: Tell me more about the top compound(s).
+Expected Tools: ["deg_analysis", "l1000cds2_query", "pubchem_drug_lookup"]
+
+MT-046
+User: Analyze SRP043162 for DEGs using control as control as "Baseline" and test as "Vitamin-D"
+User: Use log2FC 1.5.
+User: Actually use log2FC 2.
+User: Summarize genes identified using the 1.5 threshold.
+Expected Tools: ["deg_analysis", "deg_analysis", "deg_analysis", "deg_analysis"]
+

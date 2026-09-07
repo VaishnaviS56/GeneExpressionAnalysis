@@ -1,0 +1,8 @@
+ST-013
+User: Analyze SRP043162 for DEGs using control as control as "Baseline" and test as "Vitamin-D". Perform gene prioritization by RWR using the top 50 downregulated genes are seed genes.
+Expected Tools: ["deg_analysis", "rwr_analysis"]
+Optional Tools: ["memory_lookup", "memory_slice"]
+
+ST-052
+User: Analyze SRP043162 for DEGs using control as control as "Baseline" and test as "Vitamin-D" what are the molecular functions of the top 50 upregulated genes
+Expected Tools: ["deg_analysis", "primekg_query"]

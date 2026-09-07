@@ -219,7 +219,7 @@ User: Find compounds that reverse the resulting signature.
 Expected Tools: ["srp_metadata", "deg_analysis", "l1000cds2_query"]
 
 MT-042
-User: Analyze SRP043162 for DEGs using control as "baseline" and test as "Vitamin-D"
+User: Analyze SRP043162 for DEGs using control as "Baseline" and test as "Vitamin-D"
 User: Find L1000 compounds reversing my latest DEG signature.
 User: Tell me more about the top compound(s).
 Expected Tools: ["deg_analysis", "l1000cds2_query", "pubchem_drug_lookup"]

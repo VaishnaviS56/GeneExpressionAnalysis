@@ -1,0 +1,5 @@
+
+[single-turn] batch 1: tests 1-2 of 2
+Experiment: target-discovery-single-turn-batch-1-53877478
+- ST-013 | run=01a070b3-e796-7f10-90b4-6f2185aa2378 | tool_selection=0.5, tool_precision=0.2857142857142857, tool_recall=0.5, tool_ordering=0, latency_seconds=189.89033, total_tokens=44046, cost_usd=None
+- ST-052 | run=01a070b6-daa4-7391-8ddd-9b5fb6f6515a | tool_selection=1.0, tool_precision=0.5, tool_recall=1.0, tool_ordering=0, latency_seconds=216.222788, total_tokens=6235, cost_usd=None

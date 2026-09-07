@@ -99,3 +99,75 @@ This uses `HALLUCINATION_JUDGE_MODEL`, defaulting to `gemini-3.5-flash`, for
 `response_groundedness` and `evidence_validity`, then adds each completed
 experiment batch to the `Target Discovery Response Quality` annotation queue.
 Use `--no-human-review` to run only the judge evaluators.
+
+Download LangSmith traces locally:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.download_traces --file-prefix evaluators\judge_traces
+```
+
+By default this downloads root traces from the LangSmith `evaluators` project
+and saves JSONL files in chunks of 1000:
+
+```text
+evaluators\judge_traces_evaluators_chunk_0001.jsonl
+evaluators\judge_traces_evaluators_chunk_0002.jsonl
+```
+
+You can pass an API key directly or let it read `LANGSMITH_API_KEY` from `.env`:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.download_traces --api-key "..." --file-prefix evaluators\judge_traces
+```
+
+To download evaluation experiment projects instead of the `evaluators` project:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.download_traces --project-prefix target-discovery --file-prefix evaluators\eval_traces
+```
+
+Use `--include-child-runs` if you want every child run as a separate exported
+record instead of only root traces.
+
+Convert downloaded trace files to CSV:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.traces_to_csv evaluators\eval_traces_evaluators_chunk_0001.jsonl
+```
+
+This creates a CSV with the same name:
+
+```text
+evaluators\eval_traces_evaluators_chunk_0001.csv
+```
+
+The CSV includes `test_id`, `run_id`, evaluator name/key, score, comment,
+experiment, and trace ids.
+
+Convert local txt result files to CSV:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.traces_to_csv evaluators\my_results.txt --batch-size 1
+.\.venv\Scripts\python.exe -m evaluators.traces_to_csv evaluators\quality_single_results.txt --batch-size 5
+```
+
+For txt files, `--batch-size` means the batch size used when the eval results
+were saved, such as 1 or 5. The converter writes the CSV beside the txt file
+with the same base name.
+
+Download the human-review annotation queue as a review-friendly CSV:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.download_annotation_queue_excel --format csv --output evaluators\annotation_queue_review.csv
+```
+
+The CSV flattens each queued run into `test_id`, `user_query`, `final_answer`,
+run metadata, expected tools, error text, and the LangSmith trace URL so it can
+be given to human reviewers or passed to a separate LLM-as-judge workflow.
+
+If the annotation queue has already been downloaded into workbook parts, convert
+those local `.xlsx` files directly without calling LangSmith:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluators.download_annotation_queue_excel --format csv --from-xlsx evaluators\annotation_queue_part_001.xlsx evaluators\annotation_queue_part_002.xlsx evaluators\annotation_queue_part_003.xlsx evaluators\annotation_queue_part_004.xlsx evaluators\annotation_queue_part_005.xlsx evaluators\annotation_queue_part_006.xlsx evaluators\annotation_queue_part_007.xlsx evaluators\annotation_queue_part_008.xlsx --output evaluators\annotation_queue_review.csv
+```

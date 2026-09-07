@@ -1,0 +1,8 @@
+
+[single-turn-quality] batch 1: tests 1-1 of 2
+Experiment: target-discovery-single-turn-quality-batch-1-e6a89a77
+- ST-013 | run=01a070c1-000b-7d60-ad85-b7d9927cab28 | response_groundedness=5, evidence_validity=5
+
+[single-turn-quality] batch 2: tests 2-2 of 2
+Experiment: target-discovery-single-turn-quality-batch-2-f48fa9d1
+- ST-052 | run=01a070c4-4fa3-70c0-ac95-bbed7776bc76 | response_groundedness=1, evidence_validity=2

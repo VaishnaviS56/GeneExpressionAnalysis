@@ -358,6 +358,16 @@ mart <- useEnsembl(
     dataset = "hsapiens_gene_ensembl",
     mirror = "www"
 )
+
+# mart <- useMart(
+#     biomart = "ENSEMBL_MART_ENSEMBL",
+#     host = "useast.ensembl.org"
+# )
+
+# mart <- useDataset(
+#     "hsapiens_gene_ensembl",
+#     mart = mart
+# )
 annots <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id",
                 "hgnc_symbol", "entrezgene_id", "entrezgene_accession", 
                 "external_gene_name", "description"), 

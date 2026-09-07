@@ -1,0 +1,32 @@
+
+[multi-turn-quality] batch 1: tests 1-1 of 8
+Experiment: target-discovery-multi-turn-quality-batch-1-711e9703
+- MT-013 | run=01a070ca-a29f-7280-a4bf-2b96a8b96d30 | response_groundedness=5, evidence_validity=3
+
+[multi-turn-quality] batch 2: tests 2-2 of 8
+Experiment: target-discovery-multi-turn-quality-batch-2-548ff272
+- MT-016 | run=01a070cf-bf29-7f43-8841-d8a9e731564e | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 3: tests 3-3 of 8
+Experiment: target-discovery-multi-turn-quality-batch-3-6583bd44
+- MT-018 | run=01a070d2-eaa9-7270-a030-5c63746eb040 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 4: tests 4-4 of 8
+Experiment: target-discovery-multi-turn-quality-batch-4-efc1822a
+- MT-019 | run=01a070d5-dfbd-7ac1-a148-8fe9d47df715 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 5: tests 5-5 of 8
+Experiment: target-discovery-multi-turn-quality-batch-5-4aa8fc98
+- MT-025 | run=01a070d9-0452-75b1-ae06-1100ba725b53 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 6: tests 6-6 of 8
+Experiment: target-discovery-multi-turn-quality-batch-6-53a3bdfd
+- MT-028 | run=01a070dc-ca6a-7672-b2d2-230951442791 | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 7: tests 7-7 of 8
+Experiment: target-discovery-multi-turn-quality-batch-7-003b8891
+- MT-042 | run=01a070e0-cb7f-7d50-b9fb-8734f6cbffbd | response_groundedness=5, evidence_validity=2
+
+[multi-turn-quality] batch 8: tests 8-8 of 8
+Experiment: target-discovery-multi-turn-quality-batch-8-da05836d
+- MT-046 | run=01a070e5-79fd-7313-a33c-35e9cbb144b3 | response_groundedness=5, evidence_validity=2
